@@ -235,7 +235,7 @@ export default function App() {
                 {limitInfo.message}
               </p>
               {!limitInfo.subscriber && (
-                <a href="https://www.infofrankrijk.com/abonnement/" target="_blank" rel="noopener noreferrer"
+                <a href="https://infofrankrijk.com/abonnement/" target="_blank" rel="noopener noreferrer"
                   style={{ display: "inline-block", padding: "9px 20px", background: "#800000", color: "#fff", borderRadius: 4, fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: "'Poppins', sans-serif", marginRight: 10 }}>
                   Word abonnee →
                 </a>
