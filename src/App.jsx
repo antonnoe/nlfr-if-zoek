@@ -157,34 +157,34 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#faf8f6", fontFamily: "'Mulish', 'Segoe UI', sans-serif", color: "#2a2a2a" }}>
-      <header style={{ background: "#800000", padding: "20px 24px 18px", position: "sticky", top: 0, zIndex: 10 }}>
+      <header style={{ background: "#fff", borderBottom: "1px solid rgba(128,0,0,0.12)", padding: "14px 20px 16px", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-            <div>
-              <div style={{ fontFamily: "'Poppins', sans-serif", color: "#fff", fontSize: 18, fontWeight: 700, letterSpacing: "0.01em", marginBottom: 4 }}>
-                Zoek in NLFR &amp; Infofrankrijk
-              </div>
-              <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 12 }}>
-                AI-zoekassistent · nederlanders.fr · infofrankrijk.com
-              </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
+            <a href="https://www.nederlanders.fr" style={{ color: "#800000", fontSize: 12, textDecoration: "none", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              ← Terug naar Nederlanders.fr
+            </a>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontFamily: "'Poppins', sans-serif", color: "#800000", fontSize: 13, fontWeight: 700 }}>
+                AI-zoek · NLFR &amp; Infofrankrijk
+              </span>
+              {isSubscriber && (
+                <span style={{ background: "rgba(128,0,0,0.08)", color: "#800000", fontSize: 10, padding: "3px 8px", borderRadius: 10, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  ✓ Abonnee
+                </span>
+              )}
             </div>
-            {isSubscriber && (
-              <div style={{ background: "rgba(255,255,255,0.15)", color: "#fff", fontSize: 11, padding: "4px 10px", borderRadius: 12, fontWeight: 600, whiteSpace: "nowrap" }}>
-                ✓ Abonnee
-              </div>
-            )}
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 6 }}>
             <input ref={inputRef} type="text" value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               placeholder="Stel een vraag over het leven in Frankrijk..."
               disabled={status === "searching"}
-              style={{ flex: 1, padding: "10px 14px", border: "2px solid rgba(255,255,255,0.2)", borderRadius: 6, background: "rgba(255,255,255,0.12)", color: "#fff", fontSize: 14, fontFamily: "inherit", outline: "none" }}
+              style={{ flex: 1, padding: "8px 12px", border: "1px solid rgba(128,0,0,0.35)", borderRadius: 4, background: "#fff", color: "#2a2a2a", fontSize: 13, fontFamily: "inherit", outline: "none" }}
             />
             <button onClick={() => handleSearch()}
               disabled={status === "searching" || !query.trim()}
-              style={{ padding: "10px 20px", background: status === "searching" ? "rgba(255,255,255,0.15)" : "#fff", color: status === "searching" ? "rgba(255,255,255,0.5)" : "#800000", border: "none", borderRadius: 6, fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: 13, cursor: status === "searching" ? "wait" : "pointer", whiteSpace: "nowrap" }}>
+              style={{ padding: "8px 18px", background: status === "searching" ? "#ccc" : "#800000", color: "#fff", border: "none", borderRadius: 4, fontFamily: "'Poppins', sans-serif", fontWeight: 600, fontSize: 12, cursor: status === "searching" ? "wait" : "pointer", whiteSpace: "nowrap" }}>
               {status === "searching" ? "Zoeken..." : "Zoek"}
             </button>
           </div>
