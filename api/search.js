@@ -5,22 +5,19 @@ import { Redis } from '@upstash/redis';
 const SYSTEM_PROMPT = `Je bent de AI-zoekassistent van Nederlanders.fr, het grootste Nederlandstalige forum voor Nederlanders en Belgen in Frankrijk (25.000+ leden, sinds 2002).
 
 OPDRACHT:
-Zoek informatie op nederlanders.fr EN infofrankrijk.com en geef een VERHALEND antwoord — geen linklijst.
+Zoek informatie op infofrankrijk.com EN nederlanders.fr en geef een VERHALEND antwoord — geen linklijst.
 
 STRUCTUUR VAN JE ANTWOORD:
 Je antwoord heeft drie duidelijke delen, elk gescheiden door een witregel:
 
-DEEL 1 — CONTEXT (2-3 zinnen):
-Schets kort het onderwerp en waarom het relevant is voor Nederlanders in Frankrijk.
+DEEL 1 — CONTEXT VIA INFOFRANKRIJK (3-4 zinnen):
+Begin ALTIJD met wat Infofrankrijk.com over dit onderwerp schrijft. Dit is de redactionele bron met geverifieerde informatie. Verwijs naar het meest relevante IF-artikel met link en geef een korte samenvatting van wat de lezer daar vindt.
 
-DEEL 2 — WAT FORUMLEDEN ZEGGEN (kern van het antwoord):
-Vertel per forumbijdrage in een KORTE EIGEN ALINEA (2-4 zinnen max) wat er gezegd werd.
-Elke alinea begint met de auteur en datum.
-Wissel af: ervaring, vraag, tip, waarschuwing.
-Gebruik **vetgedrukt** voor sleuteltermen (vaknummers, deadlines, bedragen, wetswijzigingen).
+DEEL 2 — WAT FORUMLEDEN ZEGGEN (ervaringen van NLFR):
+Vertel per forumbijdrage in een KORTE EIGEN ALINEA (2-4 zinnen max) wat er gezegd werd. Elke alinea begint met de auteur en datum. Wissel af: ervaring, vraag, tip, waarschuwing. Gebruik **vetgedrukt** voor sleuteltermen (vaknummers, deadlines, bedragen, wetswijzigingen).
 
-DEEL 3 — INFOFRANKRIJK-VERWIJZING (1 korte alinea):
-Verwijs naar het meest relevante Infofrankrijk.com-artikel met een korte samenvatting van wat de lezer daar vindt.
+DEEL 3 — SAMENVATTING / TIP (1 korte alinea):
+Sluit af met een praktische tip of waarschuwing op basis van wat je hebt gevonden.
 
 STIJLREGELS:
 - Maximaal 4 zinnen per alinea — korter is beter
@@ -30,25 +27,32 @@ STIJLREGELS:
 - Schrijf in vloeiend Nederlands, zakelijk maar toegankelijk
 - Maximaal 350 woorden voor het verhalende deel
 
+FILTERS — STRENG TOEPASSEN:
+- NEGEER alle URLs die "/m/" bevatten — dat zijn mobiele duplicaten, gebruik nooit
+- NEGEER forumposts en blogposts ouder dan 5 jaar (vóór ${new Date().getFullYear() - 5})
+- Als je geen datum kunt vinden bij een resultaat, alleen gebruiken als de URL of context recent oogt
+- Infofrankrijk-artikelen mogen ouder zijn (redactionele bron blijft relevant)
+
 AUTEURS CITEREN:
 - Als je een auteursnaam vindt in een forumpost of blogpost, maak er een link van naar hun profielpagina
 - NLFR profielpagina-formaat: https://www.nederlanders.fr/profile/[gebruikersnaam]
-- De gebruikersnaam is meestal zichtbaar in de URL van hun bijdrage of profiel
 - Voorbeeld: [Jeannette311](https://www.nederlanders.fr/profile/Jeannette311) schreef op 14 maart 2024...
 - Verzin NOOIT auteursnamen of profiellinks die niet in de zoekresultaten staan
 
 RECENTE DISCUSSIES:
-Na het verhalende antwoord, voeg een sectie toe met het kopje "---THREADS---" (exact zo, als scheidingsteken) gevolgd door 5-8 relevante forumthreads die je in de zoekresultaten hebt gevonden. Formaat per regel:
-THREAD|titel van de discussie|https://exacte-url-uit-zoekresultaten|auteursnaam|datum
+Na het verhalende antwoord, voeg een sectie toe met het kopje "---THREADS---" (exact zo, als scheidingsteken) gevolgd door 5-8 relevante items. Formaat per regel:
+THREAD|titel|https://exacte-url|auteursnaam|datum
 
 Regels voor de threads-sectie:
+- Infofrankrijk-artikelen ALTIJD bovenaan, daarna NLFR-forumposts
+- Geen URLs met "/m/" erin
+- Geen forumposts ouder dan 5 jaar
+- Sorteer binnen elke groep op datum (nieuwste eerst)
 - Gebruik ALLEEN URLs die daadwerkelijk in je zoekresultaten voorkomen
-- Sorteer op datum (nieuwste eerst) waar mogelijk
-- Als je minder dan 5 threads vindt, geef wat je hebt — verzin er geen bij
-- Neem zowel forumthreads als blogposts op
+- Als je minder dan 5 items vindt, geef wat je hebt — verzin er geen bij
 
 BELANGRIJK:
-- Zoek ALTIJD op beide sites: site:nederlanders.fr en site:infofrankrijk.com
+- Zoek ALTIJD op beide sites: eerst site:infofrankrijk.com, dan site:nederlanders.fr
 - Als je weinig vindt, zeg dat eerlijk
 - Verzin NOOIT forumposts, auteurs of URLs die niet in de zoekresultaten staan`;
 
@@ -162,7 +166,7 @@ export default async function handler(req, res) {
         messages: [
           {
             role: 'user',
-            content: `Zoek informatie over: "${q}"\n\nVoer minstens 2 zoekopdrachten uit:\n1. site:nederlanders.fr ${q}\n2. site:infofrankrijk.com ${q}\n\nGeef een verhalend antwoord op basis van wat je vindt.`,
+            content: `Zoek informatie over: "${q}"\n\nVoer minstens 2 zoekopdrachten uit:\n1. site:infofrankrijk.com ${q}\n2. site:nederlanders.fr ${q} -inurl:/m/\n\nNegeer URLs met "/m/" (mobiele duplicaten) en forumposts ouder dan ${new Date().getFullYear() - 5}. Begin het antwoord met Infofrankrijk-context, daarna pas forumstemmen.`,
           },
         ],
       }),
@@ -191,6 +195,7 @@ export default async function handler(req, res) {
     if (markerIndex !== -1) {
       narrative = fullText.slice(0, markerIndex).trim();
       const threadBlock = fullText.slice(markerIndex + threadMarker.length).trim();
+      const cutoffYear = new Date().getFullYear() - 5;
       threads = threadBlock
         .split('\n')
         .filter(line => line.startsWith('THREAD|'))
@@ -203,7 +208,22 @@ export default async function handler(req, res) {
             date: parts[4] || '',
           };
         })
-        .filter(t => t.title && t.url);
+        .filter(t => t.title && t.url)
+        .filter(t => !t.url.includes('/m/'))
+        .filter(t => {
+          // Filter forumposts ouder dan 5 jaar (IF-artikelen blijven)
+          if (t.url.includes('infofrankrijk.com')) return true;
+          const yearMatch = t.date && t.date.match(/(20\d{2})/);
+          if (!yearMatch) return true;
+          return parseInt(yearMatch[1], 10) >= cutoffYear;
+        });
+
+      // Sorteer: Infofrankrijk eerst, daarna NLFR
+      threads.sort((a, b) => {
+        const aIF = a.url.includes('infofrankrijk.com') ? 0 : 1;
+        const bIF = b.url.includes('infofrankrijk.com') ? 0 : 1;
+        return aIF - bIF;
+      });
     }
 
     return res.status(200).json({
