@@ -1,3 +1,7 @@
+import crypto from 'crypto';
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
 const SYSTEM_PROMPT = `Je bent de AI-zoekassistent van Nederlanders.fr, het grootste Nederlandstalige forum voor Nederlanders en Belgen in Frankrijk (25.000+ leden, sinds 2002).
 
 OPDRACHT:
@@ -48,31 +52,99 @@ BELANGRIJK:
 - Als je weinig vindt, zeg dat eerlijk
 - Verzin NOOIT forumposts, auteurs of URLs die niet in de zoekresultaten staan`;
 
+// Verifieer HMAC-token van Infofrankrijk WP-snippet
+function verifyToken(token, secret) {
+  if (!token || !secret) return null;
+  try {
+    const decoded = Buffer.from(token, 'base64').toString('utf-8');
+    const payload = JSON.parse(decoded);
+    const { email, timestamp, signature } = payload;
+    if (!email || !timestamp || !signature) return null;
+
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(`${email}:${timestamp}`)
+      .digest('hex');
+
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length) return null;
+    if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+
+    return { email, timestamp };
+  } catch {
+    return null;
+  }
+}
+
+// Init rate limiters (alleen als Upstash env vars aanwezig zijn)
+let subscriberLimit = null;
+let anonLimit = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  const redis = Redis.fromEnv();
+  subscriberLimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.fixedWindow(10, '1 d'),
+    prefix: 'nlfr-if-zoek:sub',
+    analytics: false,
+  });
+  anonLimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.fixedWindow(3, '1 d'),
+    prefix: 'nlfr-if-zoek:anon',
+    analytics: false,
+  });
+}
+
 export default async function handler(req, res) {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'API key niet geconfigureerd' });
-  }
+  if (!apiKey) return res.status(500).json({ error: 'API key niet geconfigureerd' });
 
-  const { query } = req.body;
+  const { query, token } = req.body || {};
   if (!query || typeof query !== 'string' || query.trim().length === 0) {
     return res.status(400).json({ error: 'Geen zoekvraag opgegeven' });
   }
-
   const q = query.trim();
+
+  // Token validatie
+  const ssoSecret = process.env.INFOFRANKRIJK_SSO_SECRET;
+  const verified = token ? verifyToken(token, ssoSecret) : null;
+  const isSubscriber = !!verified;
+
+  // Rate limiting
+  if (subscriberLimit && anonLimit) {
+    if (isSubscriber) {
+      const result = await subscriberLimit.limit(verified.email.toLowerCase());
+      if (!result.success) {
+        return res.status(429).json({
+          error: 'Dagelijkse limiet bereikt',
+          subscriber: true,
+          limit: result.limit,
+          reset: result.reset,
+          message: 'Je hebt vandaag je 10 zoekopdrachten gebruikt. Morgen kun je weer verder, of stel je vraag aan Café Claude voor onbeperkte AI-begeleiding.',
+        });
+      }
+    } else {
+      const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
+      const result = await anonLimit.limit(ip);
+      if (!result.success) {
+        return res.status(429).json({
+          error: 'Dagelijkse gratis limiet bereikt',
+          subscriber: false,
+          limit: result.limit,
+          reset: result.reset,
+          message: 'Je gratis zoekopdrachten zijn op voor vandaag. Word abonnee van Infofrankrijk voor 10 zoekopdrachten per dag, of probeer morgen opnieuw.',
+        });
+      }
+    }
+  }
 
   try {
     const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -86,12 +158,7 @@ export default async function handler(req, res) {
         model: 'claude-sonnet-4-20250514',
         max_tokens: 2000,
         system: SYSTEM_PROMPT,
-        tools: [
-          {
-            type: 'web_search_20250305',
-            name: 'web_search',
-          },
-        ],
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [
           {
             role: 'user',
@@ -110,18 +177,11 @@ export default async function handler(req, res) {
     }
 
     const data = await apiRes.json();
-
-    // Count searches
     const searchCount = data.content?.filter(b => b.type === 'web_search_tool_result')?.length || 0;
-
-    // Check truncation
     const truncated = data.stop_reason === 'max_tokens';
-
-    // Extract text
     const textBlocks = data.content?.filter(b => b.type === 'text') || [];
     const fullText = textBlocks.map(b => b.text).join('\n\n');
 
-    // Split narrative from threads
     const threadMarker = '---THREADS---';
     const markerIndex = fullText.indexOf(threadMarker);
 
@@ -131,7 +191,6 @@ export default async function handler(req, res) {
     if (markerIndex !== -1) {
       narrative = fullText.slice(0, markerIndex).trim();
       const threadBlock = fullText.slice(markerIndex + threadMarker.length).trim();
-
       threads = threadBlock
         .split('\n')
         .filter(line => line.startsWith('THREAD|'))
@@ -152,6 +211,7 @@ export default async function handler(req, res) {
       threads,
       searchCount,
       truncated,
+      subscriber: isSubscriber,
     });
   } catch (err) {
     console.error('Search handler error:', err);
