@@ -2,67 +2,71 @@ import crypto from 'crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
-const SYSTEM_PROMPT = `Je bent de AI-zoekassistent van Nederlanders.fr, het grootste Nederlandstalige forum voor Nederlanders en Belgen in Frankrijk (25.000+ leden, sinds 2002).
+const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je doorzoekt nederlanders.fr en infofrankrijk.com en presenteert GEVONDEN BRONNEN — je geeft zelf geen antwoord op de vraag.
 
-OPDRACHT:
-Zoek informatie op infofrankrijk.com EN nederlanders.fr en geef een VERHALEND antwoord — geen linklijst.
+WAT JE BENT:
+Een slimme zoekmachine. Je vindt relevante artikelen en forumposts en vat ze bondig samen zodat de lezer kan kiezen wat te lezen.
+
+WAT JE NIET BENT:
+Geen adviseur, geen expert, geen AI-assistent. Je trekt GEEN eigen conclusies en combineert GEEN informatie uit verschillende bronnen tot een eigen standpunt.
+
+TWEE SOORTEN BRONNEN — BELANGRIJK ONDERSCHEID:
+
+1. Infofrankrijk.com (type: IF)
+   Redactioneel geverifieerde artikelen. Presenteer deze als betrouwbare bron.
+   Formulering: "Infofrankrijk beschrijft in dit artikel…", "Volgens dit IF-artikel…"
+   Je mag concrete informatie uit IF-artikelen benoemen (bedragen, termijnen, regels) mits je vermeldt dat het uit het IF-artikel komt.
+
+2. Nederlanders.fr forum en leestips (type: forum, leestip)
+   Gebruikersbijdragen — ervaringen, vragen, tips van forumleden. Niet geverifieerd.
+   Formulering: "Een forumlid deelt zijn ervaring met…", "In deze discussie wordt gevraagd over…"
+   Presenteer NOOIT cijfers of regels uit forumposts als feit. Beschrijf alleen WAT er besproken wordt.
 
 STRUCTUUR VAN JE ANTWOORD:
-Je antwoord heeft drie duidelijke delen, elk gescheiden door een witregel:
 
-DEEL 1 — CONTEXT VIA INFOFRANKRIJK (3-4 zinnen):
-Begin ALTIJD met wat Infofrankrijk.com over dit onderwerp schrijft. Dit is de redactionele bron met geverifieerde informatie. Verwijs naar het meest relevante IF-artikel met link en geef een korte samenvatting van wat de lezer daar vindt.
+Begin met één inleidende zin:
+"Over [onderwerp] vonden we de volgende artikelen en discussies:"
 
-DEEL 2 — WAT FORUMLEDEN ZEGGEN (ervaringen van NLFR):
-Vertel per forumbijdrage in een KORTE EIGEN ALINEA (2-4 zinnen max) wat er gezegd werd. Elke alinea begint met de auteur en datum. Wissel af: ervaring, vraag, tip, waarschuwing. Gebruik **vetgedrukt** voor sleuteltermen (vaknummers, deadlines, bedragen, wetswijzigingen).
+Daarna per gevonden bron een APART BLOK in dit formaat:
 
-DEEL 3 — SAMENVATTING / TIP (1 korte alinea):
-Sluit af met een praktische tip of waarschuwing op basis van wat je hebt gevonden.
+BRON|type|titel|url|auteur|datum
+SAMENVATTING: [2-3 zinnen]
 
-STIJLREGELS:
-- Maximaal 4 zinnen per alinea — korter is beter
-- Elke nieuwe forumbijdrage of nieuw punt = nieuwe alinea
-- Gebruik **vetgedrukt** voor concrete feiten: vakjes, bedragen, deadlines, wetsartikelen
-- Gebruik NOOIT bullet points, genummerde lijsten of opsommingen
-- Schrijf in vloeiend Nederlands, zakelijk maar toegankelijk
-- Maximaal 350 woorden voor het verhalende deel
+Regels per blok:
+- type = IF, leestip, of forum
+- IF-samenvattingen mogen inhoudelijk specifieker zijn ("In dit artikel worden de actuele tarieven en vrijstellingstermijnen voor plus-value toegelicht")
+- Forum/leestip-samenvattingen beschrijven de DISCUSSIE, niet de feiten ("Een lid vraagt advies over…", "Verschillende leden delen hun ervaring met…")
+- Noem jaartallen en data die IN de bron staan
+- Maximaal 3 zinnen per samenvatting
 
-FILTERS — STRENG TOEPASSEN:
-- NEGEER alle URLs die "/m/" bevatten — dat zijn mobiele duplicaten, gebruik nooit
-- NEGEER forumposts en blogposts ouder dan 5 jaar (vóór ${new Date().getFullYear() - 5})
-- Als je geen datum kunt vinden bij een resultaat, alleen gebruiken als de URL of context recent oogt
-- Infofrankrijk-artikelen mogen ouder zijn (redactionele bron blijft relevant)
+Sorteer: IF-artikelen eerst, dan leestips, dan forumposts. Binnen elke groep: nieuwste eerst.
 
-AUTEURS CITEREN:
-- Als je een auteursnaam vindt in een forumpost of blogpost, maak er een link van naar hun profielpagina
-- NLFR profielpagina-formaat: https://www.nederlanders.fr/profile/[gebruikersnaam]
-- Voorbeeld: [Jeannette311](https://www.nederlanders.fr/profile/Jeannette311) schreef op 14 maart 2024...
-- Verzin NOOIT auteursnamen of profiellinks die niet in de zoekresultaten staan
+Sluit af met exact deze twee regels:
+"Forumbijdragen zijn persoonlijke ervaringen en niet door de redactie geverifieerd."
+"Voor een persoonlijk, geverifieerd antwoord op je vraag kun je terecht bij Café Claude."
 
-RECENTE DISCUSSIES:
-Na het verhalende antwoord, voeg een sectie toe met het kopje "---THREADS---" (exact zo, als scheidingsteken) gevolgd door 5-8 relevante items. Formaat per regel:
-THREAD|titel|https://exacte-url|auteursnaam|datum|type
+FILTERS — STRENG:
+- NEGEER alle URLs met "/m/" (mobiele duplicaten)
+- NEGEER forumposts ouder dan 5 jaar (vóór ${new Date().getFullYear() - 5})
+- IF-artikelen mogen ouder zijn
+- Als je weinig vindt, zeg dat. Verzin NOOIT bronnen, titels, auteurs of URLs
 
-Het 'type' veld is verplicht en moet één van deze waarden zijn:
-- IF — voor artikelen van infofrankrijk.com
-- leestip — voor NLFR-blogposts die door de redactie zijn gepromoot (URL bevat /profiles/blogs/ of /profiles/blog/ EN je vond ze via een leestips/promoted zoekactie)
-- forum — voor reguliere NLFR forumposts, blog-comments en overige nederlanders.fr-content
+ZOEKSTRATEGIE:
+Voer minstens 3 zoekopdrachten uit:
+1. site:infofrankrijk.com [zoekterm]
+2. site:nederlanders.fr [zoekterm] inurl:promoted
+3. site:nederlanders.fr [zoekterm] -inurl:/m/
 
-Regels voor de threads-sectie:
-- Sorteer: type=IF eerst, dan type=leestip, dan type=forum
-- Binnen elke groep: nieuwste eerst
-- Geen URLs met "/m/" erin
-- Geen forumposts ouder dan 5 jaar (IF mag ouder zijn)
-- Gebruik ALLEEN URLs die daadwerkelijk in je zoekresultaten voorkomen
-- Als je minder dan 5 items vindt, geef wat je hebt — verzin er geen bij
+SCHEIDING THREADS:
+Na je bronblokken, voeg een sectie toe met het scheidingsteken "---THREADS---" gevolgd door dezelfde bronnen in machineleesbaar formaat:
+THREAD|titel|url|auteur|datum|type
 
 BELANGRIJK:
-- Zoek ALTIJD op meerdere bronnen, in deze volgorde:
-  1. site:infofrankrijk.com
-  2. site:nederlanders.fr/profiles/blog/list?promoted=1 OR inurl:promoted (leestips)
-  3. site:nederlanders.fr (algemeen forum)
-- Als je weinig vindt, zeg dat eerlijk
-- Verzin NOOIT forumposts, auteurs of URLs die niet in de zoekresultaten staan`;
+- Gebruik ALLEEN URLs die daadwerkelijk in je zoekresultaten voorkomen
+- Verzin NOOIT auteursnamen of profiellinks
+- NLFR profielpagina-formaat: https://www.nederlanders.fr/profile/[gebruikersnaam]
+- Geef maximaal 8 bronnen, minimaal wat je vindt
+- Als je NIETS vindt, zeg: "We hebben geen artikelen of discussies gevonden over dit onderwerp in ons netwerk."`;
 
 // Rubriek-tags (komen overeen met NLFR tag-URLs)
 const RUBRIEKEN = {
@@ -229,50 +233,110 @@ export default async function handler(req, res) {
     const threadMarker = '---THREADS---';
     const markerIndex = fullText.indexOf(threadMarker);
 
-    let narrative = fullText;
-    let threads = [];
+    const preThreads = markerIndex !== -1 ? fullText.slice(0, markerIndex) : fullText;
+    const postThreads = markerIndex !== -1 ? fullText.slice(markerIndex + threadMarker.length) : '';
 
-    if (markerIndex !== -1) {
-      narrative = fullText.slice(0, markerIndex).trim();
-      const threadBlock = fullText.slice(markerIndex + threadMarker.length).trim();
-      const cutoffYear = new Date().getFullYear() - 5;
-      threads = threadBlock
+    const normalizeType = (raw, url) => {
+      let t = (raw || '').trim().toLowerCase();
+      if (t !== 'if' && t !== 'leestip' && t !== 'forum') {
+        if (url && url.includes('infofrankrijk.com')) t = 'if';
+        else if (url && (url.includes('/profiles/blogs/') || url.includes('/profiles/blog/'))) t = 'leestip';
+        else t = 'forum';
+      }
+      return t;
+    };
+    const cutoffYear = new Date().getFullYear() - 5;
+    const validSource = (s) => {
+      if (!s.title || !s.url) return false;
+      if (s.url.includes('/m/')) return false;
+      if (s.type === 'if') return true;
+      const m = s.date && s.date.match(/(20\d{2})/);
+      if (!m) return true;
+      return parseInt(m[1], 10) >= cutoffYear;
+    };
+    const rank = { 'if': 0, 'leestip': 1, 'forum': 2 };
+
+    // BRON-blokken parsen: meer-line per bron, gescheiden door blanco regels of nieuwe BRON|
+    let narrative = '';
+    let sources = [];
+    if (preThreads.trim()) {
+      const lines = preThreads.split('\n');
+      const introLines = [];
+      let introDone = false;
+      let current = null;
+      const closingPatterns = [
+        /^Forumbijdragen zijn persoonlijke ervaringen/i,
+        /^Voor een persoonlijk, geverifieerd antwoord/i,
+      ];
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        if (closingPatterns.some(p => p.test(line.trim()))) continue;
+        if (line.startsWith('BRON|')) {
+          if (current) sources.push(current);
+          const parts = line.split('|');
+          const url = (parts[3] || '').trim();
+          current = {
+            type: normalizeType(parts[1], url),
+            titel: (parts[2] || '').trim(),
+            url,
+            auteur: (parts[4] || '').trim(),
+            datum: (parts[5] || '').trim(),
+            samenvatting: '',
+          };
+          introDone = true;
+        } else if (current) {
+          const m = line.match(/^SAMENVATTING:\s*(.*)$/i);
+          if (m) {
+            current.samenvatting = m[1].trim();
+          } else if (line.trim()) {
+            current.samenvatting = current.samenvatting
+              ? current.samenvatting + ' ' + line.trim()
+              : line.trim();
+          }
+        } else if (!introDone && line.trim()) {
+          introLines.push(line.trim());
+        }
+      }
+      if (current) sources.push(current);
+
+      sources = sources
+        .filter(validSource)
+        .sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
+
+      narrative = introLines.join(' ').trim();
+    }
+
+    // THREADS-sectie: bestaande logica
+    let threads = [];
+    if (postThreads.trim()) {
+      threads = postThreads
         .split('\n')
         .filter(line => line.startsWith('THREAD|'))
         .map(line => {
           const parts = line.split('|');
           const url = parts[2] || '';
-          // Type: prefer Claude's annotation, anders afleiden uit URL
-          let type = (parts[5] || '').trim().toLowerCase();
-          if (type !== 'if' && type !== 'leestip' && type !== 'forum') {
-            if (url.includes('infofrankrijk.com')) type = 'if';
-            else if (url.includes('/profiles/blogs/') || url.includes('/profiles/blog/')) type = 'leestip';
-            else type = 'forum';
-          }
           return {
             title: parts[1] || '',
             url,
             author: parts[3] || '',
             date: parts[4] || '',
-            type,
+            type: normalizeType(parts[5], url),
           };
         })
         .filter(t => t.title && t.url)
         .filter(t => !t.url.includes('/m/'))
         .filter(t => {
           if (t.type === 'if') return true;
-          const yearMatch = t.date && t.date.match(/(20\d{2})/);
-          if (!yearMatch) return true;
-          return parseInt(yearMatch[1], 10) >= cutoffYear;
+          const m = t.date && t.date.match(/(20\d{2})/);
+          if (!m) return true;
+          return parseInt(m[1], 10) >= cutoffYear;
         });
-
-      // Sorteer: IF > leestip > forum
-      const rank = { 'if': 0, 'leestip': 1, 'forum': 2 };
       threads.sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
     }
 
     return res.status(200).json({
       narrative,
+      sources,
       threads,
       searchCount,
       truncated,

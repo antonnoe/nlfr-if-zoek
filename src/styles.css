@@ -529,6 +529,98 @@ button { font-family: inherit; cursor: pointer; }
   100% { background-position: -100% 0; }
 }
 
+/* ---------- result intro + source cards (refactor: bronnen-presentator) ---------- */
+.result-intro {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  margin: 8px 0 18px;
+  text-wrap: pretty;
+}
+.bron-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.bron-card {
+  background: #fff;
+  border: 1px solid rgba(128, 0, 0, 0.10);
+  border-radius: 6px;
+  padding: 14px 16px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.bron-card:hover { border-color: rgba(128, 0, 0, 0.22); box-shadow: 0 2px 8px rgba(31, 24, 21, 0.04); }
+.bron-card.is-if { border-left: 3px solid #800000; }
+.bron-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  margin-bottom: 8px;
+}
+.bron-badge.is-if { background: #800000; color: #fff; }
+.bron-badge.is-leestip { background: rgba(128, 0, 0, 0.15); color: #800000; }
+.bron-badge.is-forum { background: rgba(0, 0, 0, 0.06); color: #666; }
+.bron-titel {
+  display: block;
+  color: #800000;
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.4;
+  text-decoration: none;
+  border: none;
+  padding: 0;
+  letter-spacing: -0.005em;
+}
+.bron-titel:hover { text-decoration: underline; }
+.bron-samenvatting {
+  font-size: 13px;
+  color: #555;
+  line-height: 1.7;
+  margin-top: 6px;
+}
+.bron-meta {
+  font-size: 11px;
+  color: #888;
+  margin-top: 8px;
+}
+.bron-meta a { color: #888; text-decoration: none; }
+.bron-meta a:hover { color: #800000; }
+.bron-disclaimer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--hairline);
+}
+.bron-disclaimer p { margin: 0 0 4px; line-height: 1.6; }
+.bron-disclaimer .disclaimer-fine {
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+}
+.bron-disclaimer .disclaimer-cta {
+  font-size: 12px;
+  color: #800000;
+}
+.bron-disclaimer .disclaimer-cta a {
+  color: #800000;
+  text-decoration: underline;
+  text-decoration-color: rgba(128, 0, 0, 0.4);
+}
+.bron-empty {
+  padding: 32px 20px;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 /* ---------- results ---------- */
 .results { padding: 8px 0 64px; }
 .query-line {

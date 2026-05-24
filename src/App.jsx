@@ -33,28 +33,6 @@ const EXAMPLES = [
 
 const FEATURED_RUBRIEKEN = ["Geldzaken", "Migratie", "Vervoer", "Werk algemeen", "Overheid en wet", "MKB"];
 
-/* ---------- markdown renderer (inline links, bold, italic) ---------- */
-function renderMd(raw) {
-  if (!raw) return null;
-  const parts = [];
-  const re = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
-  let last = 0, m, key = 0;
-  const text = raw.replace(/\n/g, " ");
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) parts.push(<span key={key++}>{text.slice(last, m.index)}</span>);
-    if (m[1] && m[2]) {
-      parts.push(<a key={key++} href={m[2]} target="_blank" rel="noopener noreferrer">{m[1]}</a>);
-    } else if (m[3]) {
-      parts.push(<strong key={key++}>{m[3]}</strong>);
-    } else if (m[4]) {
-      parts.push(<em key={key++}>{m[4]}</em>);
-    }
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) parts.push(<span key={key++}>{text.slice(last)}</span>);
-  return parts;
-}
-
 /* ---------- topbar ---------- */
 function Topbar({ subscriber }) {
   return (
@@ -214,9 +192,39 @@ function Searching() {
   );
 }
 
+/* ---------- bron-kaart (per-source presentation) ---------- */
+function BronCard({ src }) {
+  const isNLFR = !src.url.includes('infofrankrijk.com') && (src.url.includes('nederlanders.fr') || src.type === 'forum' || src.type === 'leestip');
+  const badgeClass = src.type === 'if' ? 'is-if' : src.type === 'leestip' ? 'is-leestip' : 'is-forum';
+  const badgeLabel = src.type === 'if' ? 'IF' : src.type === 'leestip' ? 'Leestip' : 'Forum';
+  return (
+    <div className={`bron-card ${src.type === 'if' ? 'is-if' : ''}`}>
+      <span className={`bron-badge ${badgeClass}`}>{badgeLabel}</span>
+      <a className="bron-titel" href={src.url} target="_blank" rel="noopener noreferrer">{src.titel}</a>
+      {src.samenvatting && <div className="bron-samenvatting">{src.samenvatting}</div>}
+      {(src.auteur || src.datum) && (
+        <div className="bron-meta">
+          {src.auteur && (
+            isNLFR
+              ? <a href={`https://www.nederlanders.fr/profile/${src.auteur}`} target="_blank" rel="noopener noreferrer">{src.auteur}</a>
+              : <span>{src.auteur}</span>
+          )}
+          {src.auteur && src.datum && " · "}
+          {src.datum && <span>{src.datum}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- results ---------- */
-function Results({ query, rubriek, response, threads, searchCount, onReset }) {
-  const paragraphs = (response || "").split(/\n\n+/).filter(p => p.trim());
+function Results({ query, rubriek, narrative, sources, threads, searchCount, onReset }) {
+  const hasNothing = sources.length === 0 && threads.length === 0;
+  const introText = narrative && narrative.trim()
+    ? narrative.trim()
+    : (sources.length > 0
+        ? `Over "${query}" vonden we de volgende artikelen en discussies:`
+        : '');
 
   return (
     <section className="results shell">
@@ -227,23 +235,44 @@ function Results({ query, rubriek, response, threads, searchCount, onReset }) {
         <div className="query-meta">
           {rubriek && <span>Rubriek · <b>{rubriek}</b></span>}
           {searchCount > 0 && <span>{searchCount} bronzoekopdracht{searchCount !== 1 ? "en" : ""}</span>}
-          {threads.length > 0 && <span>{threads.length} bron{threads.length !== 1 ? "nen" : ""}</span>}
+          {sources.length > 0 && <span>{sources.length} bron{sources.length !== 1 ? "nen" : ""}</span>}
         </div>
       </div>
 
-      <div className="answer">
-        {paragraphs.map((p, i) => {
-          const isLead = i === 0;
-          return isLead
-            ? <p key={i} className="lead-first">{renderMd(p)}</p>
-            : <p key={i}>{renderMd(p)}</p>;
-        })}
-      </div>
+      {hasNothing ? (
+        <div className="bron-empty">
+          We hebben geen artikelen of discussies gevonden over dit onderwerp.
+          Probeer een andere zoekterm of stel je vraag aan{" "}
+          <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer" style={{ color: "#800000", textDecoration: "underline" }}>
+            Café Claude
+          </a>.
+        </div>
+      ) : (
+        <>
+          {introText && <p className="result-intro">{introText}</p>}
+
+          {sources.length > 0 && (
+            <div className="bron-list">
+              {sources.map((s, i) => <BronCard key={i} src={s} />)}
+            </div>
+          )}
+
+          <div className="bron-disclaimer">
+            <p className="disclaimer-fine">
+              Forumbijdragen zijn persoonlijke ervaringen en niet door de redactie geverifieerd.
+            </p>
+            <p className="disclaimer-cta">
+              Voor een persoonlijk, geverifieerd antwoord op je vraag kun je terecht bij{" "}
+              <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">Café Claude</a>.
+            </p>
+          </div>
+        </>
+      )}
 
       {threads.length > 0 && (
         <div className="sources">
           <div className="sources-head">
-            <div className="sources-title">Bronnen</div>
+            <div className="sources-title">Recente discussies</div>
             <div className="sources-count">{threads.length} gevonden</div>
           </div>
           <div className="source-list">
@@ -363,6 +392,7 @@ export default function App() {
   const [isSubscriber, setIsSubscriber] = useState(false);
   const [state, setState] = useState("idle"); // idle | searching | results | limit | error
   const [response, setResponse] = useState("");
+  const [sources, setSources] = useState([]);
   const [threads, setThreads] = useState([]);
   const [searchCount, setSearchCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
@@ -400,6 +430,7 @@ export default function App() {
 
     setState("searching");
     setResponse("");
+    setSources([]);
     setThreads([]);
     setSearchCount(0);
     setErrorMsg("");
@@ -427,17 +458,9 @@ export default function App() {
 
       setSearchCount(data.searchCount || 0);
       setIsSubscriber(!!data.subscriber);
-      let fullText = data.narrative || "";
-      if (data.truncated) {
-        fullText += "\n\n*Dit antwoord is afgekapt. Probeer een specifiekere zoekvraag.*";
-      }
-      if (!fullText.trim()) {
-        setResponse("Geen resultaten gevonden. Probeer een andere zoekterm of stel je vraag direct aan [Café Claude](https://cafeclaude.fr).");
-        setThreads([]);
-      } else {
-        setResponse(fullText);
-        setThreads(data.threads || []);
-      }
+      setResponse(data.narrative || "");
+      setSources(Array.isArray(data.sources) ? data.sources : []);
+      setThreads(Array.isArray(data.threads) ? data.threads : []);
       setState("results");
     } catch (err) {
       setErrorMsg(err.message || "Er ging iets mis bij het zoeken.");
@@ -458,6 +481,7 @@ export default function App() {
   const onReset = () => {
     setQuery("");
     setResponse("");
+    setSources([]);
     setThreads([]);
     setLimitInfo(null);
     setErrorMsg("");
@@ -501,7 +525,8 @@ export default function App() {
           <Results
             query={query}
             rubriek={rubriek}
-            response={response}
+            narrative={response}
+            sources={sources}
             threads={threads}
             searchCount={searchCount}
             onReset={onReset}
