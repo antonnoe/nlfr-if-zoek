@@ -88,13 +88,13 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
   const redis = Redis.fromEnv();
   subscriberLimit = new Ratelimit({
     redis,
-    limiter: Ratelimit.fixedWindow(10, '1 d'),
+    limiter: Ratelimit.fixedWindow(15, '1 d'),
     prefix: 'nlfr-if-zoek:sub',
     analytics: false,
   });
   anonLimit = new Ratelimit({
     redis,
-    limiter: Ratelimit.fixedWindow(3, '1 d'),
+    limiter: Ratelimit.fixedWindow(6, '1 d'),
     prefix: 'nlfr-if-zoek:anon',
     analytics: false,
   });
@@ -132,7 +132,7 @@ export default async function handler(req, res) {
           subscriber: true,
           limit: result.limit,
           reset: result.reset,
-          message: 'Je hebt vandaag je 10 zoekopdrachten gebruikt. Morgen kun je weer verder, of stel je vraag aan Café Claude voor onbeperkte AI-begeleiding.',
+          message: 'Je hebt vandaag je 15 zoekopdrachten gebruikt. Morgen kun je weer verder, of stel je vraag aan Café Claude voor onbeperkte AI-begeleiding.',
         });
       }
     } else {
@@ -144,7 +144,7 @@ export default async function handler(req, res) {
           subscriber: false,
           limit: result.limit,
           reset: result.reset,
-          message: 'Je gratis zoekopdrachten zijn op voor vandaag. Word abonnee van Infofrankrijk voor 10 zoekopdrachten per dag, of probeer morgen opnieuw.',
+          message: 'Je gratis zoekopdrachten zijn op voor vandaag. Word abonnee van Infofrankrijk voor 15 zoekopdrachten per dag, of probeer morgen opnieuw.',
         });
       }
     }

@@ -196,8 +196,8 @@ export default function App() {
           <div>
             <p style={{ color: "#888", fontSize: 13, marginBottom: 16, fontStyle: "italic" }}>
               Doorzoekt forumbijdragen en artikelen van het netwerk en geeft een verhalend antwoord met bronvermelding.
-              {!isSubscriber && " Gratis: 3 zoekopdrachten per dag. Infofrankrijk-abonnees: 10 per dag."}
-              {isSubscriber && " Als IF-abonnee heb je 10 zoekopdrachten per dag."}
+              {!isSubscriber && " Gratis: 6 zoekopdrachten per dag. Infofrankrijk-abonnees: 15 per dag."}
+              {isSubscriber && " Als IF-abonnee heb je 15 zoekopdrachten per dag."}
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {examples.map((ex) => (
