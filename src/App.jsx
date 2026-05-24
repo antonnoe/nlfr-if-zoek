@@ -157,6 +157,13 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#faf8f6", fontFamily: "'Mulish', 'Segoe UI', sans-serif", color: "#2a2a2a" }}>
+      <div style={{ background: "#fff", padding: "12px 20px 6px", textAlign: "center" }}>
+        <a href="https://www.nederlanders.fr" target="_blank" rel="noopener noreferrer">
+          <img src="https://nlfr-verblijven-bij-leden.vercel.app/images/nederlanders-fr-header.svg"
+            alt="Nederlanders.fr"
+            style={{ maxWidth: "100%", height: "auto", maxHeight: 80, display: "inline-block" }} />
+        </a>
+      </div>
       <header style={{ background: "#fff", borderBottom: "1px solid rgba(128,0,0,0.12)", padding: "14px 20px 16px", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
