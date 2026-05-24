@@ -41,20 +41,59 @@ AUTEURS CITEREN:
 
 RECENTE DISCUSSIES:
 Na het verhalende antwoord, voeg een sectie toe met het kopje "---THREADS---" (exact zo, als scheidingsteken) gevolgd door 5-8 relevante items. Formaat per regel:
-THREAD|titel|https://exacte-url|auteursnaam|datum
+THREAD|titel|https://exacte-url|auteursnaam|datum|type
+
+Het 'type' veld is verplicht en moet één van deze waarden zijn:
+- IF — voor artikelen van infofrankrijk.com
+- leestip — voor NLFR-blogposts die door de redactie zijn gepromoot (URL bevat /profiles/blogs/ of /profiles/blog/ EN je vond ze via een leestips/promoted zoekactie)
+- forum — voor reguliere NLFR forumposts, blog-comments en overige nederlanders.fr-content
 
 Regels voor de threads-sectie:
-- Infofrankrijk-artikelen ALTIJD bovenaan, daarna NLFR-forumposts
+- Sorteer: type=IF eerst, dan type=leestip, dan type=forum
+- Binnen elke groep: nieuwste eerst
 - Geen URLs met "/m/" erin
-- Geen forumposts ouder dan 5 jaar
-- Sorteer binnen elke groep op datum (nieuwste eerst)
+- Geen forumposts ouder dan 5 jaar (IF mag ouder zijn)
 - Gebruik ALLEEN URLs die daadwerkelijk in je zoekresultaten voorkomen
 - Als je minder dan 5 items vindt, geef wat je hebt — verzin er geen bij
 
 BELANGRIJK:
-- Zoek ALTIJD op beide sites: eerst site:infofrankrijk.com, dan site:nederlanders.fr
+- Zoek ALTIJD op meerdere bronnen, in deze volgorde:
+  1. site:infofrankrijk.com
+  2. site:nederlanders.fr/profiles/blog/list?promoted=1 OR inurl:promoted (leestips)
+  3. site:nederlanders.fr (algemeen forum)
 - Als je weinig vindt, zeg dat eerlijk
 - Verzin NOOIT forumposts, auteurs of URLs die niet in de zoekresultaten staan`;
+
+// Rubriek-tags (komen overeen met NLFR tag-URLs)
+const RUBRIEKEN = {
+  'Bouw': 'Bouw',
+  'Correspondentie': 'Correspondentie',
+  'Cursussen': 'Cursussen+en+Opleidingen',
+  'Dieren': 'Dieren',
+  'Exterieur': 'Exterieur',
+  'Geldzaken': 'Geldzaken',
+  'Gezondheid/Sport': 'Gezondheid%2C+Sport+en+Spel',
+  'Korte verhalen': 'Korte+Verhalen',
+  'Woordenlijst': 'Lexicon',
+  'MKB': 'Midden-+en+Kleinbedrijf',
+  'Migratie': 'Migratie',
+  'Onderwijs': 'Onderwijs',
+  'Ouderverzorging': 'Ouderverzorging',
+  'Overheid en wet': 'Overheid',
+  'Overige diensten': 'Overige+Diensten',
+  'Telecommunicatie': 'Telecommunicatie',
+  'Te koop': 'Te+Koop+Aangeboden',
+  'Te koop gevraagd': 'Te+Koop+Gevraagd',
+  'Vervoer': 'Vervoer',
+  'Verenigingen': 'Verenigingen',
+  'Werkaanbod': 'Werk+Aangeboden',
+  'Werk algemeen': 'Werk+Algemeen',
+  'Werk gevraagd': 'Werk+Gevraagd',
+  'Woningbeheer': 'Woningbeheer+en+Huishouding',
+  'Huizen aangeboden': 'Woningen+Aangeboden',
+  'Wonen algemeen': 'Woningen+Algemeen',
+  'Woningen gevraagd': 'Woningen+Gevraagd',
+};
 
 // Verifieer HMAC-token van Infofrankrijk WP-snippet
 function verifyToken(token, secret) {
@@ -111,11 +150,12 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'API key niet geconfigureerd' });
 
-  const { query, token } = req.body || {};
+  const { query, token, rubriek } = req.body || {};
   if (!query || typeof query !== 'string' || query.trim().length === 0) {
     return res.status(400).json({ error: 'Geen zoekvraag opgegeven' });
   }
   const q = query.trim();
+  const rubriekTag = rubriek && RUBRIEKEN[rubriek] ? RUBRIEKEN[rubriek] : null;
 
   // Token validatie
   const ssoSecret = process.env.INFOFRANKRIJK_SSO_SECRET;
@@ -166,7 +206,7 @@ export default async function handler(req, res) {
         messages: [
           {
             role: 'user',
-            content: `Zoek informatie over: "${q}"\n\nVoer minstens 2 zoekopdrachten uit:\n1. site:infofrankrijk.com ${q}\n2. site:nederlanders.fr ${q} -inurl:/m/\n\nNegeer URLs met "/m/" (mobiele duplicaten) en forumposts ouder dan ${new Date().getFullYear() - 5}. Begin het antwoord met Infofrankrijk-context, daarna pas forumstemmen.`,
+            content: `Zoek informatie over: "${q}"${rubriekTag ? `\n\nFILTER: beperk NLFR-resultaten tot rubriek "${rubriek}" (tag=${rubriekTag}).` : ''}\n\nVoer minstens 3 zoekopdrachten uit:\n1. site:infofrankrijk.com ${q}\n2. site:nederlanders.fr ${q} inurl:promoted (door redactie uitgelichte leestips)\n3. site:nederlanders.fr ${q} -inurl:/m/${rubriekTag ? ` inurl:tag=${rubriekTag}` : ''}\n\nNegeer URLs met "/m/" (mobiele duplicaten) en forumposts ouder dan ${new Date().getFullYear() - 5}. Begin het antwoord met Infofrankrijk-context, daarna leestips/forumstemmen. In de THREADS-sectie: markeer elk item met type (IF/leestip/forum) en sorteer in die volgorde.`,
           },
         ],
       }),
@@ -201,29 +241,34 @@ export default async function handler(req, res) {
         .filter(line => line.startsWith('THREAD|'))
         .map(line => {
           const parts = line.split('|');
+          const url = parts[2] || '';
+          // Type: prefer Claude's annotation, anders afleiden uit URL
+          let type = (parts[5] || '').trim().toLowerCase();
+          if (type !== 'if' && type !== 'leestip' && type !== 'forum') {
+            if (url.includes('infofrankrijk.com')) type = 'if';
+            else if (url.includes('/profiles/blogs/') || url.includes('/profiles/blog/')) type = 'leestip';
+            else type = 'forum';
+          }
           return {
             title: parts[1] || '',
-            url: parts[2] || '',
+            url,
             author: parts[3] || '',
             date: parts[4] || '',
+            type,
           };
         })
         .filter(t => t.title && t.url)
         .filter(t => !t.url.includes('/m/'))
         .filter(t => {
-          // Filter forumposts ouder dan 5 jaar (IF-artikelen blijven)
-          if (t.url.includes('infofrankrijk.com')) return true;
+          if (t.type === 'if') return true;
           const yearMatch = t.date && t.date.match(/(20\d{2})/);
           if (!yearMatch) return true;
           return parseInt(yearMatch[1], 10) >= cutoffYear;
         });
 
-      // Sorteer: Infofrankrijk eerst, daarna NLFR
-      threads.sort((a, b) => {
-        const aIF = a.url.includes('infofrankrijk.com') ? 0 : 1;
-        const bIF = b.url.includes('infofrankrijk.com') ? 0 : 1;
-        return aIF - bIF;
-      });
+      // Sorteer: IF > leestip > forum
+      const rank = { 'if': 0, 'leestip': 1, 'forum': 2 };
+      threads.sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
     }
 
     return res.status(200).json({
@@ -232,6 +277,7 @@ export default async function handler(req, res) {
       searchCount,
       truncated,
       subscriber: isSubscriber,
+      rubriek: rubriek || null,
     });
   } catch (err) {
     console.error('Search handler error:', err);

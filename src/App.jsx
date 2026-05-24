@@ -12,6 +12,8 @@ export default function App() {
   const [threads, setThreads] = useState([]);
   const [isSubscriber, setIsSubscriber] = useState(false);
   const [token, setToken] = useState("");
+  const [rubriek, setRubriek] = useState("");
+  const [rubrieken, setRubrieken] = useState([]);
   const [autoSearchDone, setAutoSearchDone] = useState(false);
   const outputRef = useRef(null);
   const inputRef = useRef(null);
@@ -36,6 +38,11 @@ export default function App() {
 
     const urlQuery = params.get("q");
     if (urlQuery) setQuery(urlQuery);
+
+    fetch("/api/rubrieken")
+      .then(r => r.json())
+      .then(d => setRubrieken(d.rubrieken || []))
+      .catch(() => {});
   }, []);
 
   const handleSearch = async (searchQuery) => {
@@ -53,7 +60,7 @@ export default function App() {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, token: token || undefined }),
+        body: JSON.stringify({ query: q, token: token || undefined, rubriek: rubriek || undefined }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -195,6 +202,23 @@ export default function App() {
               {status === "searching" ? "Zoeken..." : "Zoek"}
             </button>
           </div>
+          {rubrieken.length > 0 && (
+            <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+              <label style={{ fontSize: 11, color: "#888" }}>Rubriek:</label>
+              <select value={rubriek} onChange={(e) => setRubriek(e.target.value)}
+                disabled={status === "searching"}
+                style={{ flex: 1, padding: "4px 6px", border: "1px solid rgba(128,0,0,0.25)", borderRadius: 3, background: "#fff", color: "#2a2a2a", fontSize: 11, fontFamily: "inherit", outline: "none" }}>
+                <option value="">Alle rubrieken (NLFR + IF + leestips)</option>
+                {rubrieken.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              {rubriek && (
+                <button onClick={() => setRubriek("")}
+                  style={{ padding: "3px 8px", background: "transparent", border: "1px solid rgba(128,0,0,0.25)", borderRadius: 3, color: "#800000", fontSize: 10, cursor: "pointer" }}>
+                  ×
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
@@ -267,6 +291,11 @@ export default function App() {
             <div style={{ background: "rgba(128,0,0,0.04)", borderLeft: "3px solid #800000", padding: "10px 14px", marginBottom: 20, borderRadius: "0 4px 4px 0" }}>
               <span style={{ fontSize: 11, color: "#888", display: "block", marginBottom: 2 }}>Zoekvraag</span>
               <span style={{ fontSize: 14, fontWeight: 600, color: "#800000" }}>{query}</span>
+              {rubriek && (
+                <span style={{ fontSize: 11, color: "#800000", marginLeft: 12, fontWeight: 600, background: "rgba(128,0,0,0.08)", padding: "2px 8px", borderRadius: 10 }}>
+                  rubriek: {rubriek}
+                </span>
+              )}
               {searchCount > 0 && (
                 <span style={{ fontSize: 11, color: "#888", marginLeft: 12, fontWeight: 400 }}>
                   · {searchCount} bronzoekopdracht{searchCount !== 1 ? "en" : ""} uitgevoerd
@@ -291,24 +320,36 @@ export default function App() {
                 <div style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: 13, color: "#800000", marginBottom: 12 }}>
                   Recente discussies
                 </div>
-                {threads.map((t, i) => (
-                  <div key={i} style={{ padding: "8px 0", borderTop: i > 0 ? "1px solid rgba(0,0,0,0.05)" : "none", display: "flex", flexDirection: "column", gap: 2 }}>
-                    <a href={t.url} target="_blank" rel="noopener noreferrer"
-                      style={{ color: "#800000", textDecoration: "none", fontSize: 13, fontWeight: 600, lineHeight: 1.4 }}>
-                      {t.title}
-                    </a>
-                    <div style={{ fontSize: 11, color: "#888" }}>
-                      {t.author && (
-                        <a href={`https://www.nederlanders.fr/profile/${t.author}`} target="_blank" rel="noopener noreferrer"
-                          style={{ color: "#888", textDecoration: "none" }}>
-                          {t.author}
+                {threads.map((t, i) => {
+                  const badgeStyle = { fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, letterSpacing: "0.5px", textTransform: "uppercase", display: "inline-block" };
+                  const badges = {
+                    if: { label: "IF", bg: "#800000", color: "#fff" },
+                    leestip: { label: "Leestip", bg: "rgba(128,0,0,0.15)", color: "#800000" },
+                    forum: { label: "Forum", bg: "rgba(0,0,0,0.06)", color: "#666" },
+                  };
+                  const b = badges[t.type] || badges.forum;
+                  return (
+                    <div key={i} style={{ padding: "8px 0", borderTop: i > 0 ? "1px solid rgba(0,0,0,0.05)" : "none", display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ ...badgeStyle, background: b.bg, color: b.color }}>{b.label}</span>
+                        <a href={t.url} target="_blank" rel="noopener noreferrer"
+                          style={{ color: "#800000", textDecoration: "none", fontSize: 13, fontWeight: 600, lineHeight: 1.4, flex: 1 }}>
+                          {t.title}
                         </a>
-                      )}
-                      {t.author && t.date && " · "}
-                      {t.date && <span>{t.date}</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#888", paddingLeft: 2 }}>
+                        {t.author && (
+                          <a href={`https://www.nederlanders.fr/profile/${t.author}`} target="_blank" rel="noopener noreferrer"
+                            style={{ color: "#888", textDecoration: "none" }}>
+                            {t.author}
+                          </a>
+                        )}
+                        {t.author && t.date && " · "}
+                        {t.date && <span>{t.date}</span>}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
