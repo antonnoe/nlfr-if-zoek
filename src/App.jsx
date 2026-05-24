@@ -1,33 +1,383 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const TOKEN_STORAGE_KEY = "nlfr_if_zoek_token";
 
+/* ---------- icons ---------- */
+const IconSearch = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path>
+  </svg>
+);
+const IconArrow = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path>
+  </svg>
+);
+const IconArrowLeft = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path>
+  </svg>
+);
+const IconExternal = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 17 17 7"></path><path d="M8 7h9v9"></path>
+  </svg>
+);
+
+const EXAMPLES = [
+  "Carte vitale aanvragen als nieuwkomer",
+  "Auto invoeren vanuit Nederland",
+  "Belastingaangifte voor niet-residenten",
+  "Een micro-entreprise opstarten",
+];
+
+const FEATURED_RUBRIEKEN = ["Geldzaken", "Migratie", "Vervoer", "Werk algemeen", "Overheid en wet", "MKB"];
+
+/* ---------- markdown renderer (inline links, bold, italic) ---------- */
+function renderMd(raw) {
+  if (!raw) return null;
+  const parts = [];
+  const re = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+  let last = 0, m, key = 0;
+  const text = raw.replace(/\n/g, " ");
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(<span key={key++}>{text.slice(last, m.index)}</span>);
+    if (m[1] && m[2]) {
+      parts.push(<a key={key++} href={m[2]} target="_blank" rel="noopener noreferrer">{m[1]}</a>);
+    } else if (m[3]) {
+      parts.push(<strong key={key++}>{m[3]}</strong>);
+    } else if (m[4]) {
+      parts.push(<em key={key++}>{m[4]}</em>);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(<span key={key++}>{text.slice(last)}</span>);
+  return parts;
+}
+
+/* ---------- topbar ---------- */
+function Topbar({ subscriber }) {
+  return (
+    <header className="topbar">
+      <div className="shell topbar-inner">
+        <a className="brand" href="https://www.nederlanders.fr" target="_blank" rel="noopener noreferrer">
+          <span className="brand-mark">Nederlanders<em>.fr</em></span>
+        </a>
+        <div className="topbar-right">
+          <a className="topbar-link hide-mob" href="https://www.nederlanders.fr" target="_blank" rel="noopener noreferrer">
+            <IconArrowLeft /> Terug naar forum
+          </a>
+          {subscriber && <span className="badge-pro">IF Abonnee</span>}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ---------- hero / search ---------- */
+function Hero({ query, setQuery, rubriek, setRubriek, rubrieken, onSearch, isSearching, inputRef }) {
+  const featured = FEATURED_RUBRIEKEN.filter(r => rubrieken.includes(r));
+  const overige = rubrieken.filter(r => !featured.includes(r));
+  const isOverigeActive = rubriek && !featured.includes(rubriek);
+
+  return (
+    <section className="hero">
+      <div className="shell">
+        <div className="eyebrow">AI-zoek · Nederlanders.fr &amp; Infofrankrijk</div>
+        <h1 className="title">
+          Eén vraag, <em>twee bronnen.</em><br />
+          Antwoord uit het netwerk.
+        </h1>
+        <p className="lede">
+          Doorzoekt forumbijdragen op Nederlanders.fr en artikelen op Infofrankrijk.com,
+          en geeft een verhalend antwoord met bronvermelding.
+        </p>
+
+        <div className="search">
+          <div className="search-row">
+            <span className="search-icon"><IconSearch /></span>
+            <input
+              ref={inputRef}
+              className="search-input"
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && onSearch()}
+              placeholder="Stel een vraag over het leven in Frankrijk…"
+              disabled={isSearching}
+            />
+            <button className="search-btn" onClick={onSearch} disabled={isSearching || !query.trim()}>
+              {isSearching ? "Zoeken…" : <>Zoeken <IconArrow /></>}
+            </button>
+          </div>
+
+          {rubrieken.length > 0 && (
+            <div className="chips-meta">
+              <span className="chips-label">Rubriek</span>
+              <button
+                className={`chip ${!rubriek ? "is-active" : ""}`}
+                onClick={() => setRubriek("")}
+              >
+                Alle rubrieken
+              </button>
+              {featured.map((r) => {
+                const active = rubriek === r;
+                return (
+                  <button
+                    key={r}
+                    className={`chip ${active ? "is-active" : ""}`}
+                    onClick={() => setRubriek(active ? "" : r)}
+                  >
+                    {r}
+                    {active && (
+                      <span className="chip-close" onClick={(e) => { e.stopPropagation(); setRubriek(""); }}>×</span>
+                    )}
+                  </button>
+                );
+              })}
+              {overige.length > 0 && (
+                <select
+                  className={`chip-select ${isOverigeActive ? "is-active" : ""}`}
+                  value={isOverigeActive ? rubriek : ""}
+                  onChange={(e) => setRubriek(e.target.value)}
+                  disabled={isSearching}
+                >
+                  <option value="">Meer rubrieken…</option>
+                  {overige.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- examples (idle) ---------- */
+function Examples({ onPick }) {
+  return (
+    <section className="shell">
+      <div className="examples">
+        <div className="examples-title">Probeer bijvoorbeeld</div>
+        <div className="examples-grid">
+          {EXAMPLES.map((ex) => (
+            <button key={ex} className="example" onClick={() => onPick(ex)}>
+              <span>{ex}</span>
+              <span className="example-arrow">→</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- searching state (animated steps) ---------- */
+function Searching() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const t1 = setTimeout(() => setStep(1), 1800);
+    const t2 = setTimeout(() => setStep(2), 4200);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+  return (
+    <section className="shell">
+      <div className="searching">
+        <div className="searching-row">
+          <span style={{ display: "inline-flex", gap: 5 }}>
+            <span className="shimmer-dot"></span>
+            <span className="shimmer-dot"></span>
+            <span className="shimmer-dot"></span>
+          </span>
+          <span className="searching-label">Aan het zoeken…</span>
+        </div>
+        <div className="searching-substeps">
+          {["Doorzoekt Nederlanders.fr forum", "Leest Infofrankrijk-artikelen", "Stelt antwoord met bronnen samen"].map((s, i) => {
+            const cls = i < step ? "is-done" : i === step ? "is-active" : "";
+            return (
+              <div key={i} className={`substep ${cls}`}>
+                <span className="tick">{i < step ? "✓" : ""}</span>
+                <span>{s}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="shimmer-lines">
+          <div className="shimmer-line"></div>
+          <div className="shimmer-line"></div>
+          <div className="shimmer-line"></div>
+          <div className="shimmer-line"></div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- results ---------- */
+function Results({ query, rubriek, response, threads, searchCount, onReset }) {
+  const paragraphs = (response || "").split(/\n\n+/).filter(p => p.trim());
+
+  return (
+    <section className="results shell">
+      <div className="query-line">
+        <h2 className="query-q">
+          <span className="quote">“</span>{query}<span className="quote">”</span>
+        </h2>
+        <div className="query-meta">
+          {rubriek && <span>Rubriek · <b>{rubriek}</b></span>}
+          {searchCount > 0 && <span>{searchCount} bronzoekopdracht{searchCount !== 1 ? "en" : ""}</span>}
+          {threads.length > 0 && <span>{threads.length} bron{threads.length !== 1 ? "nen" : ""}</span>}
+        </div>
+      </div>
+
+      <div className="answer">
+        {paragraphs.map((p, i) => {
+          const isLead = i === 0;
+          return isLead
+            ? <p key={i} className="lead-first">{renderMd(p)}</p>
+            : <p key={i}>{renderMd(p)}</p>;
+        })}
+      </div>
+
+      {threads.length > 0 && (
+        <div className="sources">
+          <div className="sources-head">
+            <div className="sources-title">Bronnen</div>
+            <div className="sources-count">{threads.length} gevonden</div>
+          </div>
+          <div className="source-list">
+            {threads.map((t, i) => {
+              const tagClass = t.type === "if" ? "tag-if" : t.type === "leestip" ? "tag-leestip" : "tag-forum";
+              const tagLabel = t.type === "if" ? "Infofrankrijk" : t.type === "leestip" ? "Leestip" : "Forum NLFR";
+              return (
+                <a key={i} className="source" href={t.url} target="_blank" rel="noopener noreferrer">
+                  <span className="source-num">{i + 1}</span>
+                  <div className="source-body">
+                    <div className="source-kicker">
+                      <span className={`tag ${tagClass}`}>{tagLabel}</span>
+                    </div>
+                    <div className="source-title">{t.title}</div>
+                    {(t.author || t.date) && (
+                      <div className="source-meta">
+                        {t.author && <span>{t.author}</span>}
+                        {t.author && t.date && " · "}
+                        {t.date && <span>{t.date}</span>}
+                      </div>
+                    )}
+                  </div>
+                  <span className="source-arrow"><IconExternal /></span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="cta">
+        <span className="cta-icon">☕</span>
+        <div className="cta-body">
+          <div className="cta-title">Meer weten? Stel je vraag aan Café Claude</div>
+          <div className="cta-sub">Persoonlijke AI-begeleiding voor Nederlanders in Frankrijk.</div>
+        </div>
+        <a className="cta-btn" href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
+          Naar Café Claude <IconArrow />
+        </a>
+      </div>
+
+      <div className="new-search">
+        <button className="new-search-btn" onClick={onReset}>
+          <IconArrowLeft /> Nieuwe zoekvraag
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- limit ---------- */
+function LimitCard({ subscriber, message, onReset }) {
+  return (
+    <section className="shell">
+      <div className="limit-card">
+        <div className="limit-eyebrow">Dagelijkse limiet</div>
+        <h2 className="limit-title">
+          {subscriber ? <>15 zoekopdrachten <em>gebruikt vandaag</em></> : <>6 gratis zoekopdrachten <em>op</em></>}
+        </h2>
+        <p className="limit-text">{message}</p>
+        <div className="limit-actions">
+          {!subscriber && (
+            <a className="btn-primary" href="https://infofrankrijk.com/abonnement/" target="_blank" rel="noopener noreferrer">
+              Word abonnee <IconArrow />
+            </a>
+          )}
+          <a className={subscriber ? "btn-primary" : "btn-ghost"} href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
+            ☕ Café Claude
+          </a>
+          <button className="btn-ghost" onClick={onReset}>Nieuwe vraag</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- error ---------- */
+function ErrorCard({ message, onReset }) {
+  return (
+    <section className="shell">
+      <div className="limit-card">
+        <div className="limit-eyebrow" style={{ color: "#8b3a3a" }}>Foutmelding</div>
+        <h2 className="limit-title">Er ging iets mis</h2>
+        <p className="limit-text">{message}</p>
+        <div className="limit-actions">
+          <button className="btn-primary" onClick={onReset}>Opnieuw proberen</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- footer ---------- */
+function Footer() {
+  return (
+    <footer className="footer">
+      <div className="shell footer-inner">
+        <div className="footer-marks">
+          <span>Nederlanders.fr</span>
+          <span className="sep">·</span>
+          <span>Infofrankrijk.com</span>
+          <span className="sep">·</span>
+          <span>Café Claude</span>
+        </div>
+        <div className="footer-fine">Onderdeel van Communities Abroad</div>
+      </div>
+    </footer>
+  );
+}
+
+/* ---------- app ---------- */
 export default function App() {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("idle");
-  const [response, setResponse] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [limitInfo, setLimitInfo] = useState(null);
-  const [searchCount, setSearchCount] = useState(0);
-  const [threads, setThreads] = useState([]);
-  const [isSubscriber, setIsSubscriber] = useState(false);
-  const [token, setToken] = useState("");
   const [rubriek, setRubriek] = useState("");
   const [rubrieken, setRubrieken] = useState([]);
+  const [token, setToken] = useState("");
+  const [isSubscriber, setIsSubscriber] = useState(false);
+  const [state, setState] = useState("idle"); // idle | searching | results | limit | error
+  const [response, setResponse] = useState("");
+  const [threads, setThreads] = useState([]);
+  const [searchCount, setSearchCount] = useState(0);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [limitInfo, setLimitInfo] = useState(null);
   const [autoSearchDone, setAutoSearchDone] = useState(false);
-  const outputRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Init: token uit URL of sessionStorage, query uit URL
   useEffect(() => {
     if (inputRef.current) inputRef.current.focus();
     const params = new URLSearchParams(window.location.search);
-
     const urlToken = params.get("token");
     if (urlToken) {
       sessionStorage.setItem(TOKEN_STORAGE_KEY, urlToken);
       setToken(urlToken);
-      setIsSubscriber(true); // optimistisch — server verifieert
+      setIsSubscriber(true);
     } else {
       const stored = sessionStorage.getItem(TOKEN_STORAGE_KEY);
       if (stored) {
@@ -35,7 +385,6 @@ export default function App() {
         setIsSubscriber(true);
       }
     }
-
     const urlQuery = params.get("q");
     if (urlQuery) setQuery(urlQuery);
 
@@ -49,12 +398,12 @@ export default function App() {
     const q = (searchQuery || query).trim();
     if (!q) return;
 
-    setStatus("searching");
+    setState("searching");
     setResponse("");
+    setThreads([]);
+    setSearchCount(0);
     setErrorMsg("");
     setLimitInfo(null);
-    setSearchCount(0);
-    setThreads([]);
 
     try {
       const res = await fetch("/api/search", {
@@ -62,31 +411,26 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, token: token || undefined, rubriek: rubriek || undefined }),
       });
-
       const data = await res.json().catch(() => ({}));
 
       if (res.status === 429) {
         setLimitInfo({
           subscriber: !!data.subscriber,
           message: data.message || "Dagelijkse limiet bereikt.",
-          reset: data.reset,
         });
-        setStatus("limit");
+        setIsSubscriber(!!data.subscriber);
+        setState("limit");
         return;
       }
 
-      if (!res.ok) {
-        throw new Error(data?.error || `API fout (${res.status})`);
-      }
+      if (!res.ok) throw new Error(data?.error || `API fout (${res.status})`);
 
       setSearchCount(data.searchCount || 0);
       setIsSubscriber(!!data.subscriber);
-
       let fullText = data.narrative || "";
       if (data.truncated) {
-        fullText += "\n\n*Dit antwoord is afgekapt. Probeer een specifiekere zoekvraag voor een vollediger resultaat.*";
+        fullText += "\n\n*Dit antwoord is afgekapt. Probeer een specifiekere zoekvraag.*";
       }
-
       if (!fullText.trim()) {
         setResponse("Geen resultaten gevonden. Probeer een andere zoekterm of stel je vraag direct aan [Café Claude](https://cafeclaude.fr).");
         setThreads([]);
@@ -94,15 +438,15 @@ export default function App() {
         setResponse(fullText);
         setThreads(data.threads || []);
       }
-      setStatus("done");
+      setState("results");
     } catch (err) {
       setErrorMsg(err.message || "Er ging iets mis bij het zoeken.");
-      setStatus("error");
+      setState("error");
     }
   };
 
   useEffect(() => {
-    if (query && !autoSearchDone && status === "idle") {
+    if (query && !autoSearchDone && state === "idle") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("q")) {
         setAutoSearchDone(true);
@@ -111,280 +455,79 @@ export default function App() {
     }
   }, [query]);
 
-  useEffect(() => {
-    if (outputRef.current) {
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
-    }
-  }, [response]);
-
-  const renderMarkdown = (text) => {
-    if (!text) return null;
-    const paragraphs = text.split(/\n\n+/);
-    return paragraphs.map((p, i) => {
-      const parts = [];
-      const regex = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
-      let lastIndex = 0;
-      let match;
-      let key = 0;
-      const raw = p.replace(/\n/g, " ");
-
-      while ((match = regex.exec(raw)) !== null) {
-        if (match.index > lastIndex) {
-          parts.push(<span key={key++}>{raw.slice(lastIndex, match.index)}</span>);
-        }
-        if (match[1] && match[2]) {
-          parts.push(
-            <a key={key++} href={match[2]} target="_blank" rel="noopener noreferrer"
-              style={{ color: "#800000", textDecoration: "underline", textDecorationColor: "rgba(128,0,0,0.3)", textUnderlineOffset: "2px" }}>
-              {match[1]}
-            </a>
-          );
-        } else if (match[3]) {
-          parts.push(<strong key={key++} style={{ fontWeight: 600 }}>{match[3]}</strong>);
-        } else if (match[4]) {
-          parts.push(<em key={key++}>{match[4]}</em>);
-        }
-        lastIndex = match.index + match[0].length;
-      }
-      if (lastIndex < raw.length) {
-        parts.push(<span key={key++}>{raw.slice(lastIndex)}</span>);
-      }
-      return (
-        <p key={i} style={{ margin: "0 0 18px 0", lineHeight: "1.8" }}>{parts}</p>
-      );
-    });
+  const onReset = () => {
+    setQuery("");
+    setResponse("");
+    setThreads([]);
+    setLimitInfo(null);
+    setErrorMsg("");
+    setState("idle");
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  const examples = [
-    "Carte vitale aanvragen",
-    "Auto invoeren Frankrijk",
-    "Belastingaangifte niet-resident",
-    "Micro-entreprise starten",
-  ];
+  const pickExample = (ex) => {
+    setQuery(ex);
+    setTimeout(() => handleSearch(ex), 50);
+  };
+
+  const heroProps = {
+    query, setQuery, rubriek, setRubriek, rubrieken,
+    onSearch: () => handleSearch(),
+    isSearching: state === "searching",
+    inputRef,
+  };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#faf8f6", fontFamily: "'Mulish', 'Segoe UI', sans-serif", color: "#2a2a2a" }}>
-      <div style={{ background: "#fff", padding: "12px 20px 6px", textAlign: "center" }}>
-        <a href="https://www.nederlanders.fr" target="_blank" rel="noopener noreferrer">
-          <img src="https://nlfr-verblijven-bij-leden.vercel.app/images/nederlanders-fr-header.svg"
-            alt="Nederlanders.fr"
-            style={{ maxWidth: "100%", height: "auto", maxHeight: 80, display: "inline-block" }} />
-        </a>
-      </div>
-      <header style={{ background: "#fff", borderBottom: "1px solid rgba(128,0,0,0.12)", padding: "14px 20px 16px", position: "sticky", top: 0, zIndex: 10 }}>
-        <div style={{ maxWidth: 720, margin: "0 auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
-            <a href="https://www.nederlanders.fr" style={{ color: "#800000", fontSize: 12, textDecoration: "none", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              ← Terug naar Nederlanders.fr
-            </a>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontFamily: "'Poppins', sans-serif", color: "#800000", fontSize: 13, fontWeight: 700 }}>
-                AI-zoek · NLFR &amp; Infofrankrijk
-              </span>
-              {isSubscriber && (
-                <span style={{ background: "rgba(128,0,0,0.08)", color: "#800000", fontSize: 10, padding: "3px 8px", borderRadius: 10, fontWeight: 600, whiteSpace: "nowrap" }}>
-                  ✓ Abonnee
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input ref={inputRef} type="text" value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="Stel een vraag over het leven in Frankrijk..."
-              disabled={status === "searching"}
-              style={{ flex: 1, padding: "8px 12px", border: "1px solid rgba(128,0,0,0.35)", borderRadius: 4, background: "#fff", color: "#2a2a2a", fontSize: 13, fontFamily: "inherit", outline: "none" }}
-            />
-            <button onClick={() => handleSearch()}
-              disabled={status === "searching" || !query.trim()}
-              style={{ padding: "8px 18px", background: status === "searching" ? "#ccc" : "#800000", color: "#fff", border: "none", borderRadius: 4, fontFamily: "'Poppins', sans-serif", fontWeight: 600, fontSize: 12, cursor: status === "searching" ? "wait" : "pointer", whiteSpace: "nowrap" }}>
-              {status === "searching" ? "Zoeken..." : "Zoek"}
-            </button>
-          </div>
-          {rubrieken.length > 0 && (
-            <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
-              <label style={{ fontSize: 11, color: "#888" }}>Rubriek:</label>
-              <select value={rubriek} onChange={(e) => setRubriek(e.target.value)}
-                disabled={status === "searching"}
-                style={{ flex: 1, padding: "4px 6px", border: "1px solid rgba(128,0,0,0.25)", borderRadius: 3, background: "#fff", color: "#2a2a2a", fontSize: 11, fontFamily: "inherit", outline: "none" }}>
-                <option value="">Alle rubrieken (NLFR + IF + leestips)</option>
-                {rubrieken.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-              {rubriek && (
-                <button onClick={() => setRubriek("")}
-                  style={{ padding: "3px 8px", background: "transparent", border: "1px solid rgba(128,0,0,0.25)", borderRadius: 3, color: "#800000", fontSize: 10, cursor: "pointer" }}>
-                  ×
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </header>
+    <div className="app">
+      <Topbar subscriber={isSubscriber} />
 
-      <main style={{ maxWidth: 720, margin: "0 auto", padding: "24px 20px 60px" }}>
-        {status === "idle" && (
-          <div>
-            <p style={{ color: "#888", fontSize: 13, marginBottom: 16, fontStyle: "italic" }}>
-              Doorzoekt forumbijdragen en artikelen van het netwerk en geeft een verhalend antwoord met bronvermelding.
-              {!isSubscriber && " Gratis: 6 zoekopdrachten per dag. Infofrankrijk-abonnees: 15 per dag."}
-              {isSubscriber && " Als IF-abonnee heb je 15 zoekopdrachten per dag."}
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {examples.map((ex) => (
-                <button key={ex}
-                  onClick={() => { setQuery(ex); setTimeout(() => handleSearch(ex), 50); }}
-                  style={{ padding: "7px 14px", background: "rgba(128,0,0,0.06)", border: "1px solid rgba(128,0,0,0.15)", borderRadius: 20, color: "#800000", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
-                  {ex}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+      {state === "idle" && (
+        <>
+          <Hero {...heroProps} />
+          <Examples onPick={pickExample} />
+        </>
+      )}
 
-        {status === "searching" && (
-          <div style={{ textAlign: "center", padding: "48px 0" }}>
-            <div style={{ display: "inline-block", width: 32, height: 32, border: "3px solid rgba(128,0,0,0.15)", borderTopColor: "#800000", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            <p style={{ color: "#800000", fontSize: 13, marginTop: 14 }}>
-              Doorzoekt nederlanders.fr en infofrankrijk.com...
-            </p>
-          </div>
-        )}
+      {state === "searching" && (
+        <>
+          <Hero {...heroProps} />
+          <Searching />
+        </>
+      )}
 
-        {status === "limit" && limitInfo && (
-          <div>
-            <div style={{ background: "rgba(128,0,0,0.04)", borderLeft: "3px solid #800000", padding: "10px 14px", marginBottom: 20, borderRadius: "0 4px 4px 0" }}>
-              <span style={{ fontSize: 11, color: "#888", display: "block", marginBottom: 2 }}>Zoekvraag</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#800000" }}>{query}</span>
-            </div>
-            <div style={{ background: "#fff", border: "1px solid rgba(128,0,0,0.15)", borderRadius: 8, padding: "20px 22px" }}>
-              <div style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: 15, color: "#800000", marginBottom: 10 }}>
-                {limitInfo.subscriber ? "Dagelijkse limiet bereikt" : "Gratis limiet bereikt"}
-              </div>
-              <p style={{ fontSize: 13, color: "#555", lineHeight: 1.7, margin: "0 0 16px 0" }}>
-                {limitInfo.message}
-              </p>
-              {!limitInfo.subscriber && (
-                <a href="https://infofrankrijk.com/abonnement/" target="_blank" rel="noopener noreferrer"
-                  style={{ display: "inline-block", padding: "9px 20px", background: "#800000", color: "#fff", borderRadius: 4, fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: "'Poppins', sans-serif", marginRight: 10 }}>
-                  Word abonnee →
-                </a>
-              )}
-              <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer"
-                style={{ display: "inline-block", padding: "9px 20px", background: limitInfo.subscriber ? "#800000" : "transparent", color: limitInfo.subscriber ? "#fff" : "#800000", border: limitInfo.subscriber ? "none" : "1px solid #800000", borderRadius: 4, fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: "'Poppins', sans-serif" }}>
-                ☕ Naar Café Claude
-              </a>
-            </div>
-            <div style={{ textAlign: "center", marginTop: 24 }}>
-              <button
-                onClick={() => { setQuery(""); setLimitInfo(null); setStatus("idle"); setTimeout(() => inputRef.current?.focus(), 100); }}
-                style={{ padding: "8px 20px", background: "transparent", border: "1px solid rgba(128,0,0,0.25)", borderRadius: 4, color: "#800000", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
-                Nieuwe zoekvraag
-              </button>
-            </div>
-          </div>
-        )}
+      {state === "results" && (
+        <>
+          <Hero {...heroProps} />
+          <Results
+            query={query}
+            rubriek={rubriek}
+            response={response}
+            threads={threads}
+            searchCount={searchCount}
+            onReset={onReset}
+          />
+        </>
+      )}
 
-        {(status === "done" || status === "error") && (
-          <div>
-            <div style={{ background: "rgba(128,0,0,0.04)", borderLeft: "3px solid #800000", padding: "10px 14px", marginBottom: 20, borderRadius: "0 4px 4px 0" }}>
-              <span style={{ fontSize: 11, color: "#888", display: "block", marginBottom: 2 }}>Zoekvraag</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#800000" }}>{query}</span>
-              {rubriek && (
-                <span style={{ fontSize: 11, color: "#800000", marginLeft: 12, fontWeight: 600, background: "rgba(128,0,0,0.08)", padding: "2px 8px", borderRadius: 10 }}>
-                  rubriek: {rubriek}
-                </span>
-              )}
-              {searchCount > 0 && (
-                <span style={{ fontSize: 11, color: "#888", marginLeft: 12, fontWeight: 400 }}>
-                  · {searchCount} bronzoekopdracht{searchCount !== 1 ? "en" : ""} uitgevoerd
-                </span>
-              )}
-            </div>
+      {state === "limit" && limitInfo && (
+        <>
+          <Hero {...heroProps} />
+          <LimitCard
+            subscriber={limitInfo.subscriber}
+            message={limitInfo.message}
+            onReset={onReset}
+          />
+        </>
+      )}
 
-            {status === "error" && (
-              <div style={{ background: "#fff5f5", border: "1px solid #e8c4c4", borderRadius: 6, padding: "14px 16px", fontSize: 13, color: "#8b3a3a" }}>
-                {errorMsg}
-              </div>
-            )}
+      {state === "error" && (
+        <>
+          <Hero {...heroProps} />
+          <ErrorCard message={errorMsg} onReset={onReset} />
+        </>
+      )}
 
-            {status === "done" && (
-              <div ref={outputRef} style={{ fontSize: 14, lineHeight: 1.8, color: "#2a2a2a" }}>
-                {renderMarkdown(response)}
-              </div>
-            )}
-
-            {status === "done" && threads.length > 0 && (
-              <div style={{ marginTop: 24, padding: "16px 18px", background: "#fff", border: "1px solid rgba(128,0,0,0.10)", borderRadius: 6 }}>
-                <div style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: 13, color: "#800000", marginBottom: 12 }}>
-                  Recente discussies
-                </div>
-                {threads.map((t, i) => {
-                  const badgeStyle = { fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3, letterSpacing: "0.5px", textTransform: "uppercase", display: "inline-block" };
-                  const badges = {
-                    if: { label: "IF", bg: "#800000", color: "#fff" },
-                    leestip: { label: "Leestip", bg: "rgba(128,0,0,0.15)", color: "#800000" },
-                    forum: { label: "Forum", bg: "rgba(0,0,0,0.06)", color: "#666" },
-                  };
-                  const b = badges[t.type] || badges.forum;
-                  return (
-                    <div key={i} style={{ padding: "8px 0", borderTop: i > 0 ? "1px solid rgba(0,0,0,0.05)" : "none", display: "flex", flexDirection: "column", gap: 3 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ ...badgeStyle, background: b.bg, color: b.color }}>{b.label}</span>
-                        <a href={t.url} target="_blank" rel="noopener noreferrer"
-                          style={{ color: "#800000", textDecoration: "none", fontSize: 13, fontWeight: 600, lineHeight: 1.4, flex: 1 }}>
-                          {t.title}
-                        </a>
-                      </div>
-                      <div style={{ fontSize: 11, color: "#888", paddingLeft: 2 }}>
-                        {t.author && (
-                          <a href={`https://www.nederlanders.fr/profile/${t.author}`} target="_blank" rel="noopener noreferrer"
-                            style={{ color: "#888", textDecoration: "none" }}>
-                            {t.author}
-                          </a>
-                        )}
-                        {t.author && t.date && " · "}
-                        {t.date && <span>{t.date}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {status === "done" && (
-              <div style={{ marginTop: 28, padding: "14px 16px", background: "rgba(128,0,0,0.04)", border: "1px solid rgba(128,0,0,0.12)", borderRadius: 6, display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 22 }}>☕</span>
-                <div>
-                  <div style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 700, fontSize: 13, color: "#800000", marginBottom: 2 }}>
-                    Meer weten? Stel je vraag aan Café Claude
-                  </div>
-                  <div style={{ fontSize: 12, color: "#666" }}>
-                    Persoonlijke AI-begeleiding voor Nederlanders in Frankrijk
-                  </div>
-                </div>
-                <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer"
-                  style={{ marginLeft: "auto", padding: "7px 16px", background: "#800000", color: "#fff", borderRadius: 4, fontSize: 12, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap", fontFamily: "'Poppins', sans-serif" }}>
-                  Ga naar CC
-                </a>
-              </div>
-            )}
-
-            <div style={{ textAlign: "center", marginTop: 24 }}>
-              <button
-                onClick={() => { setQuery(""); setResponse(""); setThreads([]); setStatus("idle"); setTimeout(() => inputRef.current?.focus(), 100); }}
-                style={{ padding: "8px 20px", background: "transparent", border: "1px solid rgba(128,0,0,0.25)", borderRadius: 4, color: "#800000", fontSize: 12, fontFamily: "inherit", cursor: "pointer" }}>
-                Nieuwe zoekvraag
-              </button>
-            </div>
-          </div>
-        )}
-      </main>
-
-      <footer style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#faf8f6", borderTop: "1px solid rgba(128,0,0,0.08)", padding: "8px 20px", textAlign: "center", fontSize: 11, color: "#aaa" }}>
-        Nederlanders.fr · Infofrankrijk.com · Communities Abroad
-      </footer>
+      <Footer />
     </div>
   );
 }
