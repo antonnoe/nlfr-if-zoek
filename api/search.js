@@ -269,7 +269,7 @@ export default async function handler(req, res) {
         /^Voor een persoonlijk, geverifieerd antwoord/i,
       ];
       for (const rawLine of lines) {
-        const line = rawLine.trimEnd();
+        const line = rawLine.replace(/\*\*/g, '').trimEnd();
         if (closingPatterns.some(p => p.test(line.trim()))) continue;
         if (line.startsWith('BRON|')) {
           if (current) sources.push(current);
