@@ -276,34 +276,6 @@ export default async function handler(req, res) {
   const verified = token ? verifyToken(token, ssoSecret) : null;
   const isSubscriber = !!verified;
 
-  // Rate limiting
-  if (subscriberLimit && anonLimit) {
-    if (isSubscriber) {
-      const result = await subscriberLimit.limit(verified.email.toLowerCase());
-      if (!result.success) {
-        return res.status(429).json({
-          error: 'Dagelijkse limiet bereikt',
-          subscriber: true,
-          limit: result.limit,
-          reset: result.reset,
-          message: 'Je hebt vandaag je 15 zoekopdrachten gebruikt. Morgen kun je weer verder, of stel je vraag aan Café Claude voor onbeperkte AI-begeleiding.',
-        });
-      }
-    } else {
-      const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
-      const result = await anonLimit.limit(ip);
-      if (!result.success) {
-        return res.status(429).json({
-          error: 'Dagelijkse gratis limiet bereikt',
-          subscriber: false,
-          limit: result.limit,
-          reset: result.reset,
-          message: 'Je gratis zoekopdrachten zijn op voor vandaag. Word abonnee van Infofrankrijk voor 15 zoekopdrachten per dag, of probeer morgen opnieuw.',
-        });
-      }
-    }
-  }
-
   const cacheKey = `nlfr-if-zoek:cache:${q.toLowerCase()}${rubriekTag ? ':' + rubriekTag : ''}`;
   if (sharedRedis) {
     try {
