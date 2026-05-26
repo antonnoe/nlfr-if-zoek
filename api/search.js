@@ -143,6 +143,71 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
   });
 }
 
+async function enrichThreads(threads) {
+  const nlfrThreads = threads
+    .filter(t => t.url && t.url.includes('nederlanders.fr'))
+    .slice(0, 5);
+
+  if (nlfrThreads.length === 0) return threads;
+
+  const results = await Promise.allSettled(
+    nlfrThreads.map(async (t) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(t.url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'NLFR-IF-Zoek/1.0' },
+        });
+        if (!res.ok) { clearTimeout(timeout); return t; }
+        const html = await res.text();
+        clearTimeout(timeout);
+
+        const viewsMatch = html.match(/Weergaven:\s*([\d.]+)/);
+        let views = null;
+        if (viewsMatch) {
+          views = parseInt(viewsMatch[1].replace(/\./g, ''), 10);
+        }
+
+        const replyMatches = html.match(/Reactie van/g);
+        const replyCount = replyMatches ? replyMatches.length : 0;
+
+        const authorMatch = html.match(/Door\s+(?:<[^>]*>)*\s*<a\s+href="https?:\/\/www\.nederlanders\.fr\/profile\/([^"]+)"[^>]*>([^<]+)<\/a>/i);
+        const authorId = authorMatch ? authorMatch[1].trim() : (t.author || '');
+        const authorDisplay = authorMatch ? authorMatch[2].trim() : (t.author || '');
+
+        const dateMatch = html.match(/geplaatst op\s+(.+?)\s*(?:om\s|$|\n|<)/i);
+        const date = dateMatch ? dateMatch[1].trim() : (t.date || '');
+
+        return {
+          ...t,
+          views,
+          replyCount,
+          author: authorId,
+          authorDisplay,
+          date,
+        };
+      } catch (e) {
+        clearTimeout(timeout);
+        return { ...t, views: null, replyCount: null, authorDisplay: t.author || '' };
+      }
+    })
+  );
+
+  const enrichedMap = new Map();
+  results.forEach(r => {
+    if (r.status === 'fulfilled' && r.value?.url) {
+      enrichedMap.set(r.value.url, r.value);
+    }
+  });
+
+  return threads.map(t =>
+    enrichedMap.has(t.url)
+      ? enrichedMap.get(t.url)
+      : { ...t, views: null, replyCount: null, authorDisplay: t.author || '' }
+  );
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -334,10 +399,12 @@ export default async function handler(req, res) {
       threads.sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
     }
 
+    const enrichedThreads = await enrichThreads(threads);
+
     return res.status(200).json({
       narrative,
       sources,
-      threads,
+      threads: enrichedThreads,
       searchCount,
       truncated,
       subscriber: isSubscriber,

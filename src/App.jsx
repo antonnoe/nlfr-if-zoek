@@ -287,11 +287,24 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, onR
                       <span className={`tag ${tagClass}`}>{tagLabel}</span>
                     </div>
                     <div className="source-title">{t.title}</div>
-                    {(t.author || t.date) && (
-                      <div className="source-meta">
-                        {t.author && <span>{t.author}</span>}
-                        {t.author && t.date && " · "}
+                    {(t.authorDisplay || t.author || t.date || t.views != null || (t.replyCount != null && t.replyCount > 0)) && (
+                      <div className="source-meta" onClick={e => e.preventDefault()}>
+                        {(t.authorDisplay || t.author) && (
+                          <a href={`https://www.nederlanders.fr/profile/${t.author || t.authorDisplay}`}
+                             target="_blank" rel="noopener noreferrer"
+                             style={{ color: '#888', textDecoration: 'none' }}
+                             onMouseEnter={e => e.target.style.color = '#800000'}
+                             onMouseLeave={e => e.target.style.color = '#888'}
+                             onClick={e => e.stopPropagation()}>
+                            {t.authorDisplay || t.author}
+                          </a>
+                        )}
+                        {(t.authorDisplay || t.author) && t.date && ' · '}
                         {t.date && <span>{t.date}</span>}
+                        {t.views != null && <span> · {t.views}× bekeken</span>}
+                        {t.replyCount != null && t.replyCount > 0 && (
+                          <span> · {t.replyCount} reactie{t.replyCount !== 1 ? 's' : ''}</span>
+                        )}
                       </div>
                     )}
                   </div>
