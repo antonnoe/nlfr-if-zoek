@@ -218,7 +218,7 @@ function BronCard({ src }) {
 }
 
 /* ---------- results ---------- */
-function Results({ query, rubriek, narrative, sources, threads, searchCount, onReset }) {
+function Results({ query, rubriek, narrative, sources, threads, searchCount, cached, onReset }) {
   const hasNothing = sources.length === 0 && threads.length === 0;
   const introText = narrative && narrative.trim()
     ? narrative.trim()
@@ -279,34 +279,46 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, onR
             {threads.map((t, i) => {
               const tagClass = t.type === "if" ? "tag-if" : t.type === "leestip" ? "tag-leestip" : "tag-forum";
               const tagLabel = t.type === "if" ? "Infofrankrijk" : t.type === "leestip" ? "Leestip" : "Forum NLFR";
+              const dimmed = t.isQuestion && (!t.replyCount || t.replyCount === 0);
               return (
-                <a key={i} className="source" href={t.url} target="_blank" rel="noopener noreferrer">
+                <a key={i} className="source" href={t.url} target="_blank" rel="noopener noreferrer"
+                   style={dimmed ? { opacity: 0.5 } : undefined}>
                   <span className="source-num">{i + 1}</span>
                   <div className="source-body">
                     <div className="source-kicker">
                       <span className={`tag ${tagClass}`}>{tagLabel}</span>
                     </div>
-                    <div className="source-title">{t.title}</div>
-                    {(t.authorDisplay || t.author || t.date || t.views != null || (t.replyCount != null && t.replyCount > 0)) && (
-                      <div className="source-meta" onClick={e => e.preventDefault()}>
-                        {(t.authorDisplay || t.author) && (
-                          <a href={`https://www.nederlanders.fr/profile/${t.author || t.authorDisplay}`}
-                             target="_blank" rel="noopener noreferrer"
-                             style={{ color: '#888', textDecoration: 'none' }}
-                             onMouseEnter={e => e.target.style.color = '#800000'}
-                             onMouseLeave={e => e.target.style.color = '#888'}
-                             onClick={e => e.stopPropagation()}>
-                            {t.authorDisplay || t.author}
-                          </a>
-                        )}
-                        {(t.authorDisplay || t.author) && t.date && ' · '}
-                        {t.date && <span>{t.date}</span>}
-                        {t.views != null && <span> · {t.views}× bekeken</span>}
-                        {t.replyCount != null && t.replyCount > 0 && (
-                          <span> · {t.replyCount} reactie{t.replyCount !== 1 ? 's' : ''}</span>
-                        )}
-                      </div>
-                    )}
+                    <div className="source-title">
+                      {t.title}
+                      {t.replyCount >= 5 && (
+                        <span style={{
+                          display: 'inline-block', fontSize: 9, fontWeight: 700,
+                          color: '#800000', background: 'rgba(128,0,0,0.07)',
+                          padding: '2px 6px', borderRadius: 3, marginLeft: 6,
+                          verticalAlign: 'middle', textTransform: 'uppercase',
+                          letterSpacing: '0.03em',
+                        }}>Veel besproken</span>
+                      )}
+                    </div>
+                    <div className="source-meta" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px' }}
+                         onClick={e => e.preventDefault()}>
+                      {(t.authorDisplay || t.author) && (
+                        <a href={`https://www.nederlanders.fr/profile/${t.author || t.authorDisplay}`}
+                           target="_blank" rel="noopener noreferrer"
+                           style={{ color: '#888', textDecoration: 'none' }}
+                           onMouseEnter={e => e.target.style.color = '#800000'}
+                           onMouseLeave={e => e.target.style.color = '#888'}
+                           onClick={e => e.stopPropagation()}>
+                          {t.authorDisplay || t.author}
+                        </a>
+                      )}
+                      {(t.authorDisplay || t.author) && t.date && <span> · </span>}
+                      {t.date && <span>{t.date}</span>}
+                      {t.views != null && <span> · {t.views}× bekeken</span>}
+                      {t.replyCount != null && t.replyCount > 0 && (
+                        <span> · {t.replyCount} reactie{t.replyCount !== 1 ? 's' : ''}</span>
+                      )}
+                    </div>
                   </div>
                   <span className="source-arrow"><IconExternal /></span>
                 </a>
@@ -332,6 +344,12 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, onR
           <IconArrowLeft /> Nieuwe zoekvraag
         </button>
       </div>
+
+      {cached && (
+        <div style={{ fontSize: 10, color: '#bbb', textAlign: 'center', marginTop: 8 }}>
+          Resultaat uit cache · Vernieuwt binnen 24 uur
+        </div>
+      )}
     </section>
   );
 }
@@ -409,6 +427,7 @@ export default function App() {
   const [threads, setThreads] = useState([]);
   const [searchCount, setSearchCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
+  const [cached, setCached] = useState(false);
   const [limitInfo, setLimitInfo] = useState(null);
   const [autoSearchDone, setAutoSearchDone] = useState(false);
   const inputRef = useRef(null);
@@ -447,6 +466,7 @@ export default function App() {
     setThreads([]);
     setSearchCount(0);
     setErrorMsg("");
+    setCached(false);
     setLimitInfo(null);
 
     try {
@@ -471,6 +491,7 @@ export default function App() {
 
       setSearchCount(data.searchCount || 0);
       setIsSubscriber(!!data.subscriber);
+      setCached(!!data.cached);
       setResponse(data.narrative || "");
       setSources(Array.isArray(data.sources) ? data.sources : []);
       setThreads(Array.isArray(data.threads) ? data.threads : []);
@@ -496,6 +517,7 @@ export default function App() {
     setResponse("");
     setSources([]);
     setThreads([]);
+    setCached(false);
     setLimitInfo(null);
     setErrorMsg("");
     setState("idle");
@@ -542,6 +564,7 @@ export default function App() {
             sources={sources}
             threads={threads}
             searchCount={searchCount}
+            cached={cached}
             onReset={onReset}
           />
         </>

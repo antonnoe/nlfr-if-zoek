@@ -124,19 +124,20 @@ function verifyToken(token, secret) {
   }
 }
 
-// Init rate limiters (alleen als Upstash env vars aanwezig zijn)
+// Gedeelde Redis instantie + rate limiters
+let sharedRedis = null;
 let subscriberLimit = null;
 let anonLimit = null;
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-  const redis = Redis.fromEnv();
+  sharedRedis = Redis.fromEnv();
   subscriberLimit = new Ratelimit({
-    redis,
+    redis: sharedRedis,
     limiter: Ratelimit.fixedWindow(15, '1 d'),
     prefix: 'nlfr-if-zoek:sub',
     analytics: false,
   });
   anonLimit = new Ratelimit({
-    redis,
+    redis: sharedRedis,
     limiter: Ratelimit.fixedWindow(6, '1 d'),
     prefix: 'nlfr-if-zoek:anon',
     analytics: false,
@@ -179,6 +180,10 @@ async function enrichThreads(threads) {
         const dateMatch = html.match(/geplaatst op\s+(.+?)\s*(?:om\s|$|\n|<)/i);
         const date = dateMatch ? dateMatch[1].trim() : (t.date || '');
 
+        const titleLower = (t.title || '').toLowerCase();
+        const isQuestion = titleLower.includes('?') ||
+          /^(hoe|wat|waar|wanneer|wie|kan|moet|mag|is het|heeft|hebben|welke|waarom)/.test(titleLower);
+
         return {
           ...t,
           views,
@@ -186,10 +191,17 @@ async function enrichThreads(threads) {
           author: authorId,
           authorDisplay,
           date,
+          isQuestion,
         };
       } catch (e) {
         clearTimeout(timeout);
-        return { ...t, views: null, replyCount: null, authorDisplay: t.author || '' };
+        return {
+          ...t,
+          views: null,
+          replyCount: null,
+          authorDisplay: t.author || '',
+          isQuestion: (t.title || '').includes('?'),
+        };
       }
     })
   );
@@ -204,8 +216,41 @@ async function enrichThreads(threads) {
   return threads.map(t =>
     enrichedMap.has(t.url)
       ? enrichedMap.get(t.url)
-      : { ...t, views: null, replyCount: null, authorDisplay: t.author || '' }
+      : {
+          ...t,
+          views: null,
+          replyCount: null,
+          authorDisplay: t.author || '',
+          isQuestion: (t.title || '').includes('?'),
+        }
   );
+}
+
+function rankThreads(threads) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  return threads
+    .map(t => {
+      const yearMatch = (t.date || '').match(/(20\d{2})/);
+      const year = yearMatch ? parseInt(yearMatch[1], 10) : null;
+      let recency = 0.5;
+      if (year) {
+        const age = currentYear - year;
+        if (age === 0) recency = 1.0;
+        else if (age === 1) recency = 0.85;
+        else if (age === 2) recency = 0.7;
+        else if (age === 3) recency = 0.55;
+        else if (age === 4) recency = 0.4;
+        else recency = 0.3;
+      }
+      const replies = t.replyCount ?? 0;
+      const replyScore = replies > 0 ? Math.log2(replies + 1) : 0;
+      const isIF = t.type === 'if' || (t.url && t.url.includes('infofrankrijk.com'));
+      const score = isIF ? 1000 : (replyScore * recency * 10);
+      return { ...t, _score: score };
+    })
+    .sort((a, b) => b._score - a._score)
+    .map(({ _score, ...rest }) => rest);
 }
 
 export default async function handler(req, res) {
@@ -231,31 +276,20 @@ export default async function handler(req, res) {
   const verified = token ? verifyToken(token, ssoSecret) : null;
   const isSubscriber = !!verified;
 
-  // Rate limiting
-  if (subscriberLimit && anonLimit) {
-    if (isSubscriber) {
-      const result = await subscriberLimit.limit(verified.email.toLowerCase());
-      if (!result.success) {
-        return res.status(429).json({
-          error: 'Dagelijkse limiet bereikt',
-          subscriber: true,
-          limit: result.limit,
-          reset: result.reset,
-          message: 'Je hebt vandaag je 15 zoekopdrachten gebruikt. Morgen kun je weer verder, of stel je vraag aan Café Claude voor onbeperkte AI-begeleiding.',
+  const cacheKey = `nlfr-if-zoek:cache:${q.toLowerCase()}${rubriekTag ? ':' + rubriekTag : ''}`;
+  if (sharedRedis) {
+    try {
+      const cached = await sharedRedis.get(cacheKey);
+      if (cached) {
+        const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached;
+        return res.status(200).json({
+          ...parsed,
+          cached: true,
+          subscriber: isSubscriber,
         });
       }
-    } else {
-      const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
-      const result = await anonLimit.limit(ip);
-      if (!result.success) {
-        return res.status(429).json({
-          error: 'Dagelijkse gratis limiet bereikt',
-          subscriber: false,
-          limit: result.limit,
-          reset: result.reset,
-          message: 'Je gratis zoekopdrachten zijn op voor vandaag. Word abonnee van Infofrankrijk voor 15 zoekopdrachten per dag, of probeer morgen opnieuw.',
-        });
-      }
+    } catch (e) {
+      console.error('Cache read error:', e);
     }
   }
 
@@ -400,15 +434,29 @@ export default async function handler(req, res) {
     }
 
     const enrichedThreads = await enrichThreads(threads);
+    const rankedThreads = rankThreads(enrichedThreads);
 
-    return res.status(200).json({
+    const responseData = {
       narrative,
       sources,
-      threads: enrichedThreads,
+      threads: rankedThreads,
       searchCount,
       truncated,
-      subscriber: isSubscriber,
       rubriek: rubriek || null,
+    };
+
+    if (sharedRedis) {
+      try {
+        await sharedRedis.set(cacheKey, JSON.stringify(responseData), { ex: 86400 });
+      } catch (e) {
+        console.error('Cache write error:', e);
+      }
+    }
+
+    return res.status(200).json({
+      ...responseData,
+      cached: false,
+      subscriber: isSubscriber,
     });
   } catch (err) {
     console.error('Search handler error:', err);
