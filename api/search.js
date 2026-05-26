@@ -345,8 +345,15 @@ export default async function handler(req, res) {
       return t;
     };
     const cutoffYear = new Date().getFullYear() - 5;
+    const validUrl = (url) => {
+      try {
+        const u = new URL(url);
+        return u.hostname.includes('nederlanders.fr') || u.hostname.includes('infofrankrijk.com');
+      } catch { return false; }
+    };
     const validSource = (s) => {
-      if (!s.title || !s.url) return false;
+      if (!s.titel || !s.url) return false;
+      if (!validUrl(s.url)) return false;
       if (s.url.includes('/m/')) return false;
       if (s.type === 'if') return true;
       const m = s.date && s.date.match(/(20\d{2})/);
@@ -422,7 +429,7 @@ export default async function handler(req, res) {
             type: normalizeType(parts[5], url),
           };
         })
-        .filter(t => t.title && t.url)
+        .filter(t => t.title && t.url && validUrl(t.url))
         .filter(t => !t.url.includes('/m/'))
         .filter(t => {
           if (t.type === 'if') return true;
