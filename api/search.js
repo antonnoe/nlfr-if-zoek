@@ -253,6 +253,82 @@ function rankThreads(threads) {
     .map(({ _score, ...rest }) => rest);
 }
 
+async function validateUrls(threads) {
+  if (!threads || threads.length === 0) return threads;
+
+  const results = await Promise.allSettled(
+    threads.map(async (t) => {
+      if (!t.url) return { ...t, _valid: false };
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      try {
+        const res = await fetch(t.url, {
+          method: 'HEAD',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'NLFR-IF-Zoek/1.0' },
+          redirect: 'follow',
+        });
+        clearTimeout(timeout);
+        const valid = res.status < 400 || res.status === 403;
+        return { ...t, _valid: valid };
+      } catch (e) {
+        clearTimeout(timeout);
+        return { ...t, _valid: true };
+      }
+    })
+  );
+
+  return results
+    .filter(r => r.status === 'fulfilled' && r.value._valid)
+    .map(r => {
+      const { _valid, ...rest } = r.value;
+      return rest;
+    });
+}
+
+async function validateNarrativeLinks(narrative) {
+  if (!narrative) return narrative;
+
+  const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g;
+  const links = [];
+  let match;
+  while ((match = linkRegex.exec(narrative)) !== null) {
+    links.push({ full: match[0], text: match[1], url: match[2] });
+  }
+
+  if (links.length === 0) return narrative;
+
+  const results = await Promise.allSettled(
+    links.map(async (link) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      try {
+        const res = await fetch(link.url, {
+          method: 'HEAD',
+          signal: controller.signal,
+          headers: { 'User-Agent': 'NLFR-IF-Zoek/1.0' },
+          redirect: 'follow',
+        });
+        clearTimeout(timeout);
+        return { ...link, valid: res.status < 400 || res.status === 403 };
+      } catch (e) {
+        clearTimeout(timeout);
+        return { ...link, valid: true };
+      }
+    })
+  );
+
+  let cleaned = narrative;
+  results.forEach(r => {
+    if (r.status === 'fulfilled' && !r.value.valid) {
+      cleaned = cleaned.replace(r.value.full, r.value.text);
+    }
+  });
+
+  return cleaned;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -440,11 +516,13 @@ export default async function handler(req, res) {
       threads.sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
     }
 
-    const enrichedThreads = await enrichThreads(threads);
+    const validatedNarrative = await validateNarrativeLinks(narrative);
+    const validThreads = await validateUrls(threads);
+    const enrichedThreads = await enrichThreads(validThreads);
     const rankedThreads = rankThreads(enrichedThreads);
 
     const responseData = {
-      narrative,
+      narrative: validatedNarrative,
       sources,
       threads: rankedThreads,
       searchCount,
