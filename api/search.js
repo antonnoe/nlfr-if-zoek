@@ -2,10 +2,10 @@ import crypto from 'crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
-const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je doorzoekt nederlanders.fr en infofrankrijk.com en presenteert GEVONDEN BRONNEN — je geeft zelf geen antwoord op de vraag.
+const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten van nederlanders.fr en infofrankrijk.com aangeleverd en presenteert de GEVONDEN BRONNEN — je geeft zelf geen antwoord op de vraag, en je zoekt niet zelf.
 
 WAT JE BENT:
-Een slimme zoekmachine. Je vindt relevante artikelen en forumposts en vat ze bondig samen zodat de lezer kan kiezen wat te lezen.
+Een slimme zoekmachine. Je krijgt een lijst zoekresultaten (titel, snippet, URL) en vat de relevante artikelen en forumposts bondig samen zodat de lezer kan kiezen wat te lezen.
 
 WAT JE NIET BENT:
 Geen adviseur, geen expert, geen AI-assistent. Je trekt GEEN eigen conclusies en combineert GEEN informatie uit verschillende bronnen tot een eigen standpunt.
@@ -49,13 +49,7 @@ FILTERS — STRENG:
 - NEGEER alle URLs met "/m/" (mobiele duplicaten)
 - NEGEER forumposts ouder dan 5 jaar (vóór ${new Date().getFullYear() - 5})
 - IF-artikelen mogen ouder zijn
-- Als je weinig vindt, zeg dat. Verzin NOOIT bronnen, titels, auteurs of URLs
-
-ZOEKSTRATEGIE:
-Voer minstens 3 zoekopdrachten uit:
-1. site:infofrankrijk.com [zoekterm]
-2. site:nederlanders.fr [zoekterm] inurl:promoted
-3. site:nederlanders.fr [zoekterm] -inurl:/m/
+- Als je weinig relevants vindt, zeg dat. Verzin NOOIT bronnen, titels, auteurs of URLs — gebruik UITSLUITEND de aangeleverde zoekresultaten
 
 SCHEIDING THREADS:
 Na je bronblokken, voeg een sectie toe met het scheidingsteken "---THREADS---" gevolgd door dezelfde bronnen in machineleesbaar formaat:
@@ -144,86 +138,69 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
   });
 }
 
-async function enrichThreads(threads) {
-  const nlfrThreads = threads
-    .filter(t => t.url && t.url.includes('nederlanders.fr'))
-    .slice(0, 5);
+// Normaliseer een zoekstring tot een deterministische cache-sleutel.
+// "carte vitale aanvragen" en "aanvragen carte vitale" → dezelfde sleutel.
+const STOPWORDS = new Set([
+  'de', 'het', 'een', 'en', 'van', 'voor', 'op', 'in', 'met', 'aan', 'bij',
+  'hoe', 'wat', 'waar', 'wanneer', 'wie', 'is', 'als', 'naar', 'te', 'om',
+  'mijn', 'je', 'ik', 'of', 'die', 'dat', 'er', 'over', 'uit', 'tot',
+]);
+function normalizeQuery(q) {
+  return (q || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // accenten strippen
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')                 // leestekens → spatie
+    .split(/\s+/)
+    .filter(w => w && !STOPWORDS.has(w))
+    .sort()
+    .join(' ')
+    .trim();
+}
 
-  if (nlfrThreads.length === 0) return threads;
+// Directe Serper-zoek (Google SERP API) — vervangt de agentic web_search-loop.
+// Twee parallelle calls (IF + NLFR) zodat beide bronnen gegarandeerd vertegenwoordigd
+// zijn ("twee bronnen"); een enkele OR-query scheeft vaak naar één domein.
+async function serperSearch(q, rubriekTag) {
+  const key = process.env.SERPER_API_KEY;
+  if (!key) throw new Error('SERPER_API_KEY niet geconfigureerd');
 
-  const results = await Promise.allSettled(
-    nlfrThreads.map(async (t) => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      try {
-        const res = await fetch(t.url, {
-          signal: controller.signal,
-          headers: { 'User-Agent': 'NLFR-IF-Zoek/1.0' },
-        });
-        if (!res.ok) { clearTimeout(timeout); return t; }
-        const html = await res.text();
-        clearTimeout(timeout);
+  const rubriekTerm = rubriekTag ? ' ' + rubriekTag.replace(/\+/g, ' ') : '';
+  const queries = [
+    `${q}${rubriekTerm} site:infofrankrijk.com`,
+    `${q}${rubriekTerm} site:nederlanders.fr -inurl:/m/`,
+  ];
 
-        const viewsMatch = html.match(/Weergaven:\s*([\d.]+)/);
-        let views = null;
-        if (viewsMatch) {
-          views = parseInt(viewsMatch[1].replace(/\./g, ''), 10);
-        }
-
-        const replyMatches = html.match(/Reactie van/g);
-        const replyCount = replyMatches ? replyMatches.length : 0;
-
-        const authorMatch = html.match(/Door\s+(?:<[^>]*>)*\s*<a\s+href="https?:\/\/www\.nederlanders\.fr\/profile\/([^"]+)"[^>]*>([^<]+)<\/a>/i);
-        const authorId = authorMatch ? authorMatch[1].trim() : (t.author || '');
-        const authorDisplay = authorMatch ? authorMatch[2].trim() : (t.author || '');
-
-        const dateMatch = html.match(/geplaatst op\s+(.+?)\s*(?:om\s|$|\n|<)/i);
-        const date = dateMatch ? dateMatch[1].trim() : (t.date || '');
-
-        const titleLower = (t.title || '').toLowerCase();
-        const isQuestion = titleLower.includes('?') ||
-          /^(hoe|wat|waar|wanneer|wie|kan|moet|mag|is het|heeft|hebben|welke|waarom)/.test(titleLower);
-
-        return {
-          ...t,
-          views,
-          replyCount,
-          author: authorId,
-          authorDisplay,
-          date,
-          isQuestion,
-        };
-      } catch (e) {
-        clearTimeout(timeout);
-        return {
-          ...t,
-          views: null,
-          replyCount: null,
-          authorDisplay: t.author || '',
-          isQuestion: (t.title || '').includes('?'),
-        };
-      }
+  const settled = await Promise.allSettled(
+    queries.map(async (query) => {
+      const res = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: query, num: 10, gl: 'fr', hl: 'nl' }),
+      });
+      if (!res.ok) return [];
+      const data = await res.json().catch(() => ({}));
+      return Array.isArray(data.organic) ? data.organic : [];
     })
   );
 
-  const enrichedMap = new Map();
-  results.forEach(r => {
-    if (r.status === 'fulfilled' && r.value?.url) {
-      enrichedMap.set(r.value.url, r.value);
+  const hits = [];
+  const seen = new Set();
+  for (const r of settled) {
+    if (r.status !== 'fulfilled') continue;
+    for (const o of r.value) {
+      const link = o.link || '';
+      if (!link || seen.has(link)) continue;
+      if (link.includes('/m/')) continue; // mobiele duplicaten
+      seen.add(link);
+      hits.push({
+        title: (o.title || '').trim(),
+        link,
+        snippet: (o.snippet || '').trim(),
+        date: (o.date || '').trim(),
+      });
     }
-  });
-
-  return threads.map(t =>
-    enrichedMap.has(t.url)
-      ? enrichedMap.get(t.url)
-      : {
-          ...t,
-          views: null,
-          replyCount: null,
-          authorDisplay: t.author || '',
-          isQuestion: (t.title || '').includes('?'),
-        }
-  );
+  }
+  return hits;
 }
 
 function rankThreads(threads) {
@@ -246,7 +223,10 @@ function rankThreads(threads) {
       const replies = t.replyCount ?? 0;
       const replyScore = replies > 0 ? Math.log2(replies + 1) : 0;
       const isIF = t.type === 'if' || (t.url && t.url.includes('infofrankrijk.com'));
-      const score = isIF ? 1000 : (replyScore * recency * 10);
+      // Zonder live reactie-data (Serper levert die niet) valt het terug op recency,
+      // zodat forumposts toch op datum gesorteerd worden i.p.v. allemaal score 0.
+      const base = replies > 0 ? replyScore * recency * 10 : recency;
+      const score = isIF ? 1000 : base;
       return { ...t, _score: score };
     })
     .sort((a, b) => b._score - a._score)
@@ -276,7 +256,8 @@ export default async function handler(req, res) {
   const verified = token ? verifyToken(token, ssoSecret) : null;
   const isSubscriber = !!verified;
 
-  const cacheKey = `nlfr-if-zoek:cache:${q.toLowerCase()}${rubriekTag ? ':' + rubriekTag : ''}`;
+  // Genormaliseerde cache-sleutel (v2): varianten van dezelfde vraag delen één entry.
+  const cacheKey = `nlfr-if-zoek:cache:v2:${normalizeQuery(q)}${rubriekTag ? ':' + rubriekTag : ''}`;
   if (sharedRedis) {
     try {
       const cached = await sharedRedis.get(cacheKey);
@@ -293,41 +274,72 @@ export default async function handler(req, res) {
     }
   }
 
-  try {
-    const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        system: SYSTEM_PROMPT,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [
-          {
-            role: 'user',
-            content: `Zoek informatie over: "${q}"${rubriekTag ? `\n\nFILTER: beperk NLFR-resultaten tot rubriek "${rubriek}" (tag=${rubriekTag}).` : ''}\n\nVoer minstens 3 zoekopdrachten uit:\n1. site:infofrankrijk.com ${q}\n2. site:nederlanders.fr ${q} inurl:promoted (door redactie uitgelichte leestips)\n3. site:nederlanders.fr ${q} -inurl:/m/${rubriekTag ? ` inurl:tag=${rubriekTag}` : ''}\n\nNegeer URLs met "/m/" (mobiele duplicaten) en forumposts ouder dan ${new Date().getFullYear() - 5}. Begin het antwoord met Infofrankrijk-context, daarna leestips/forumstemmen. In de THREADS-sectie: markeer elk item met type (IF/leestip/forum) en sorteer in die volgorde.`,
-          },
-        ],
-      }),
-    });
-
-    if (!apiRes.ok) {
-      const errBody = await apiRes.json().catch(() => ({}));
-      console.error('Anthropic API error:', apiRes.status, errBody);
-      return res.status(apiRes.status).json({
-        error: errBody?.error?.message || `Anthropic API fout (${apiRes.status})`,
-      });
+  // Rate-limiter: pas ná een cache-miss, vóór de (dure) Serper/Haiku-call.
+  // Cache-hits zijn gratis en tellen niet mee tegen de daglimiet.
+  if (sharedRedis) {
+    try {
+      const ip = (req.headers['x-forwarded-for'] || '')
+        .split(',')[0].trim() || req.socket?.remoteAddress || 'onbekend';
+      const limiter = isSubscriber ? subscriberLimit : anonLimit;
+      const identifier = isSubscriber ? verified.email : ip;
+      const { success } = await limiter.limit(identifier);
+      if (!success) {
+        return res.status(429).json({
+          subscriber: isSubscriber,
+          message: isSubscriber
+            ? 'Je dagelijkse limiet van 15 zoekopdrachten is bereikt. Voor meer kun je terecht bij Café Claude.'
+            : 'Je 6 gratis zoekopdrachten voor vandaag zijn op. Word abonnee voor 15 per dag, of stel je vraag aan Café Claude.',
+        });
+      }
+    } catch (e) {
+      console.error('Rate limit error:', e); // bij fout: niet blokkeren
     }
+  }
 
-    const data = await apiRes.json();
-    const searchCount = data.content?.filter(b => b.type === 'web_search_tool_result')?.length || 0;
-    const truncated = data.stop_reason === 'max_tokens';
-    const textBlocks = data.content?.filter(b => b.type === 'text') || [];
-    const fullText = textBlocks.map(b => b.text).join('\n\n');
+  try {
+    // 1) Bronnen ophalen via Serper (directe SERP-call, geen agentic loop)
+    const hits = await serperSearch(q, rubriekTag);
+    const searchCount = 2; // twee bronzoekopdrachten (IF + NLFR)
+
+    let fullText = '';
+    let truncated = false;
+
+    // 2) Alleen samenvatten als er treffers zijn — anders geen (dure) Haiku-call
+    if (hits.length > 0) {
+      const hitsText = hits
+        .map((h, i) => `[${i + 1}] ${h.title}\nURL: ${h.link}${h.date ? `\nDatum: ${h.date}` : ''}\nSnippet: ${h.snippet}`)
+        .join('\n\n');
+
+      const userMessage = `Hieronder de zoekresultaten voor: "${q}"${rubriekTag ? `\n(rubriekfilter: "${rubriek}")` : ''}.\n\nPresenteer de relevante bronnen volgens je instructies: eerst de BRON-blokken (IF eerst, dan leestips, dan forum), daarna de "---THREADS---"-sectie. Gebruik UITSLUITEND de onderstaande URLs — verzin niets.\n\n${hitsText}`;
+
+      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 2000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userMessage }],
+        }),
+      });
+
+      if (!apiRes.ok) {
+        const errBody = await apiRes.json().catch(() => ({}));
+        console.error('Anthropic API error:', apiRes.status, errBody);
+        return res.status(apiRes.status).json({
+          error: errBody?.error?.message || `Anthropic API fout (${apiRes.status})`,
+        });
+      }
+
+      const data = await apiRes.json();
+      truncated = data.stop_reason === 'max_tokens';
+      const textBlocks = data.content?.filter(b => b.type === 'text') || [];
+      fullText = textBlocks.map(b => b.text).join('\n\n');
+    }
 
     const threadMarker = '---THREADS---';
     const markerIndex = fullText.indexOf(threadMarker);
@@ -440,8 +452,9 @@ export default async function handler(req, res) {
       threads.sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
     }
 
-    const enrichedThreads = await enrichThreads(threads);
-    const rankedThreads = rankThreads(enrichedThreads);
+    // Geen live HTML-scrape meer (enrichThreads is vervallen): Serper levert titel,
+    // URL en datum, en dat is wat de UI nodig heeft. rankThreads valt terug op recency.
+    const rankedThreads = rankThreads(threads);
 
     const responseData = {
       narrative,
@@ -454,7 +467,7 @@ export default async function handler(req, res) {
 
     if (sharedRedis) {
       try {
-        await sharedRedis.set(cacheKey, JSON.stringify(responseData), { ex: 86400 });
+        await sharedRedis.set(cacheKey, JSON.stringify(responseData), { ex: 604800 }); // 7 dagen
       } catch (e) {
         console.error('Cache write error:', e);
       }

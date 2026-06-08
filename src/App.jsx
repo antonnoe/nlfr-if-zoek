@@ -155,8 +155,8 @@ function Examples({ onPick }) {
 function Searching() {
   const [step, setStep] = useState(0);
   useEffect(() => {
-    const t1 = setTimeout(() => setStep(1), 1800);
-    const t2 = setTimeout(() => setStep(2), 4200);
+    const t1 = setTimeout(() => setStep(1), 700);
+    const t2 = setTimeout(() => setStep(2), 1500);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
   return (
@@ -347,7 +347,7 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
 
       {cached && (
         <div style={{ fontSize: 10, color: '#bbb', textAlign: 'center', marginTop: 8 }}>
-          Resultaat uit cache · Vernieuwt binnen 24 uur
+          Resultaat uit cache · Vernieuwt binnen 7 dagen
         </div>
       )}
     </section>
