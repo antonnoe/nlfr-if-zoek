@@ -1,18 +1,23 @@
 # nlfr-if-zoek
 
-AI-zoekassistent voor Nederlanders.fr en Infofrankrijk.com. Vite + React frontend, Vercel serverless backend, Anthropic API met `web_search` tool.
+AI-zoekassistent voor Nederlanders.fr en Infofrankrijk.com. Vite + React frontend, Vercel serverless backend. Bronnen via [Serper](https://serper.dev) (Google SERP API), samenvatting via de Anthropic API (Claude Haiku 4.5).
 
 ## Toegangsmodel
 
-- **Niet-abonnees:** 3 zoekopdrachten per dag per IP
-- **Infofrankrijk-abonnees:** 10 zoekopdrachten per dag per email (via HMAC-SSO)
-- Beide via Upstash Redis (`Ratelimit.fixedWindow`)
+- **Niet-abonnees:** 6 zoekopdrachten per dag per IP
+- **Infofrankrijk-abonnees:** 15 zoekopdrachten per dag per email (via HMAC-SSO)
+- Beide via Upstash Redis (`Ratelimit.fixedWindow`), actief afgedwongen in `api/search.js`
+- Cache-hits zijn gratis en tellen niet mee tegen de daglimiet
+
+> Let op: een oudere versie van deze README noemde 3/10 per dag; de daadwerkelijke
+> waarden in de code zijn 6 (anoniem) / 15 (abonnee).
 
 ## Vereiste Vercel environment variables
 
 | Key | Waar te vinden |
 |---|---|
 | `ANTHROPIC_API_KEY` | https://console.anthropic.com/settings/keys |
+| `SERPER_API_KEY` | https://serper.dev dashboard → API Key |
 | `INFOFRANKRIJK_SSO_SECRET` | `wp-config.php` op Infofrankrijk — exact dezelfde waarde |
 | `UPSTASH_REDIS_REST_URL` | Upstash dashboard → database → REST API |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash dashboard → database → REST API |
@@ -22,7 +27,7 @@ AI-zoekassistent voor Nederlanders.fr en Infofrankrijk.com. Vite + React fronten
 ## Setup
 
 1. Maak een Upstash Redis database aan (regional, dichtst bij Vercel-regio)
-2. Voeg de 4 env vars toe in Vercel project settings
+2. Voeg de 5 env vars toe in Vercel project settings (Production + Preview)
 3. Deploy
 
 ## SSO koppeling op Infofrankrijk
@@ -52,4 +57,4 @@ npm install
 npm run dev
 ```
 
-Voor de serverless function lokaal: `vercel dev` (vereist Vercel CLI + lokale `.env.local` met alle 4 env vars).
+Voor de serverless function lokaal: `vercel dev` (vereist Vercel CLI + lokale `.env.local` met alle 5 env vars).
