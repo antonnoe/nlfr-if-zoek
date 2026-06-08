@@ -223,7 +223,7 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
   const introText = narrative && narrative.trim()
     ? narrative.trim()
     : (sources.length > 0
-        ? `Over "${query}" vonden we de volgende artikelen en discussies:`
+        ? `Over "${query}" vonden we het volgende in het netwerk:`
         : '');
 
   return (
@@ -241,8 +241,8 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
 
       {hasNothing ? (
         <div className="bron-empty">
-          We hebben geen artikelen of discussies gevonden over dit onderwerp.
-          Probeer een andere zoekterm of stel je vraag aan{" "}
+          We hebben geen dossiers, artikelen of forumbijdragen gevonden over dit onderwerp.
+          Probeer een andere zoekterm, plaats je vraag zelf op het forum, of stel hem aan{" "}
           <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer" style={{ color: "#800000", textDecoration: "underline" }}>
             Café Claude
           </a>.
@@ -272,7 +272,7 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
       {threads.length > 0 && (
         <div className="sources">
           <div className="sources-head">
-            <div className="sources-title">Recente discussies</div>
+            <div className="sources-title">Gevonden in het netwerk</div>
             <div className="sources-count">{threads.length} gevonden</div>
           </div>
           <div className="source-list">
@@ -327,6 +327,28 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
           </div>
         </div>
       )}
+
+      <div className="forum-cta" style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        gap: 12, flexWrap: "wrap", margin: "16px 0 0", padding: "14px 16px",
+        border: "1px solid rgba(128,0,0,0.25)", borderRadius: 8, background: "rgba(128,0,0,0.03)",
+      }}>
+        <div style={{ fontSize: 14, color: "#2a2a2a" }}>
+          Weet je er meer van, of heb je dezelfde vraag?{" "}
+          <strong>Plaats zelf een bericht op het forum.</strong>
+        </div>
+        <a
+          href="https://www.nederlanders.fr/profiles/blog/new"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            whiteSpace: "nowrap", fontWeight: 600, fontSize: 13, color: "#fff",
+            background: "#800000", padding: "8px 14px", borderRadius: 6, textDecoration: "none",
+          }}
+        >
+          Bericht plaatsen →
+        </a>
+      </div>
 
       <div className="cta">
         <span className="cta-icon">☕</span>

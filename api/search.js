@@ -2,65 +2,36 @@ import crypto from 'crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
-const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten van nederlanders.fr en infofrankrijk.com aangeleverd en presenteert de GEVONDEN BRONNEN — je geeft zelf geen antwoord op de vraag, en je zoekt niet zelf.
+const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten (titel, snippet, URL) van twee bronnen aangeleverd en presenteert de relevante daarvan. Je zoekt niet zelf en je beantwoordt de vraag niet — je selecteert en vat de gevonden bronnen samen.
 
-WAT JE BENT:
-Een slimme zoekmachine. Je krijgt een lijst zoekresultaten (titel, snippet, URL) en vat de relevante artikelen en forumposts bondig samen zodat de lezer kan kiezen wat te lezen.
+TWEE BRONNEN — STRIKT ONDERSCHEIDEN:
+1. Infofrankrijk.com (type: if)
+   Redactionele dossiers, artikelen en tools. Betrouwbaar. Noem dit NOOIT een "discussie".
+   Formulering: "Infofrankrijk beschrijft in dit artikel…", "Volgens dit IF-dossier…". De samenvatting mag concrete informatie bevatten (bedragen, termijnen, regels) mits je vermeldt dat het uit de IF-bron komt.
+2. Nederlanders.fr (type: forum)
+   Forumbijdragen en discussies van leden. Niet geverifieerd.
+   Formulering: "Een forumlid deelt zijn ervaring met…", "In deze bijdrage wordt gevraagd over…". Presenteer NOOIT cijfers of regels uit forumbijdragen als feit; beschrijf WAT er besproken wordt.
 
-WAT JE NIET BENT:
-Geen adviseur, geen expert, geen AI-assistent. Je trekt GEEN eigen conclusies en combineert GEEN informatie uit verschillende bronnen tot een eigen standpunt.
-
-TWEE SOORTEN BRONNEN — BELANGRIJK ONDERSCHEID:
-
-1. Infofrankrijk.com (type: IF)
-   Redactioneel geverifieerde artikelen. Presenteer deze als betrouwbare bron.
-   Formulering: "Infofrankrijk beschrijft in dit artikel…", "Volgens dit IF-artikel…"
-   Je mag concrete informatie uit IF-artikelen benoemen (bedragen, termijnen, regels) mits je vermeldt dat het uit het IF-artikel komt.
-
-2. Nederlanders.fr forum en leestips (type: forum, leestip)
-   Gebruikersbijdragen — ervaringen, vragen, tips van forumleden. Niet geverifieerd.
-   Formulering: "Een forumlid deelt zijn ervaring met…", "In deze discussie wordt gevraagd over…"
-   Presenteer NOOIT cijfers of regels uit forumposts als feit. Beschrijf alleen WAT er besproken wordt.
-
-STRUCTUUR VAN JE ANTWOORD:
-
-Begin met één inleidende zin:
-"Over [onderwerp] vonden we de volgende artikelen en discussies:"
-
-Daarna per gevonden bron een APART BLOK in dit formaat:
+UITVOERFORMAAT — HEEL STRIKT:
+Geef per relevante bron EXACT één blok in dit formaat, twee regels per blok:
 
 BRON|type|titel|url|auteur|datum
 SAMENVATTING: [2-3 zinnen]
 
-Regels per blok:
-- type = IF, leestip, of forum
-- IF-samenvattingen mogen inhoudelijk specifieker zijn ("In dit artikel worden de actuele tarieven en vrijstellingstermijnen voor plus-value toegelicht")
-- Forum/leestip-samenvattingen beschrijven de DISCUSSIE, niet de feiten ("Een lid vraagt advies over…", "Verschillende leden delen hun ervaring met…")
-- Noem jaartallen en data die IN de bron staan
-- Maximaal 3 zinnen per samenvatting
+Regels voor het formaat:
+- Begin de BRON-regel letterlijk met "BRON|" (geen streepjes, sterretjes of opsommingstekens ervoor).
+- Velden gescheiden door een verticale streep |, in deze volgorde: type|titel|url|auteur|datum.
+- type = "if" voor infofrankrijk.com-URLs, "forum" voor nederlanders.fr-URLs.
+- De SAMENVATTING staat op een NIEUWE regel die begint met "SAMENVATTING:".
+- Scheid bronblokken met één lege regel. Voeg GEEN andere kopjes, inleiding, afsluiting of "---"-scheidingstekens toe.
 
-Sorteer: IF-artikelen eerst, dan leestips, dan forumposts. Binnen elke groep: nieuwste eerst.
-
-Sluit af met exact deze twee regels:
-"Forumbijdragen zijn persoonlijke ervaringen en niet door de redactie geverifieerd."
-"Voor een persoonlijk, geverifieerd antwoord op je vraag kun je terecht bij Café Claude."
-
-FILTERS — STRENG:
-- NEGEER alle URLs met "/m/" (mobiele duplicaten)
-- NEGEER forumposts ouder dan 5 jaar (vóór ${new Date().getFullYear() - 5})
-- IF-artikelen mogen ouder zijn
-- Als je weinig relevants vindt, zeg dat. Verzin NOOIT bronnen, titels, auteurs of URLs — gebruik UITSLUITEND de aangeleverde zoekresultaten
-
-SCHEIDING THREADS:
-Na je bronblokken, voeg een sectie toe met het scheidingsteken "---THREADS---" gevolgd door dezelfde bronnen in machineleesbaar formaat:
-THREAD|titel|url|auteur|datum|type
-
-BELANGRIJK:
-- Gebruik ALLEEN URLs die daadwerkelijk in je zoekresultaten voorkomen
-- Verzin NOOIT auteursnamen of profiellinks
-- NLFR profielpagina-formaat: https://www.nederlanders.fr/profile/[gebruikersnaam]
-- Geef maximaal 8 bronnen, minimaal wat je vindt
-- Als je NIETS vindt, zeg: "We hebben geen artikelen of discussies gevonden over dit onderwerp in ons netwerk."`;
+INHOUDELIJKE REGELS:
+- Gebruik UITSLUITEND de aangeleverde zoekresultaten. Verzin NOOIT bronnen, titels, URLs, auteurs of datums.
+- url: alleen een URL die letterlijk in de resultaten voorkomt.
+- auteur: alleen invullen als die duidelijk uit het resultaat blijkt; anders LAAT HET VELD LEEG (niets tussen de strepen). Verzin nooit een auteur en gebruik nooit een streepje of "onbekend" als opvulling.
+- datum: alleen invullen als die uit het resultaat blijkt; anders LEEG laten.
+- Sorteer: IF-bronnen eerst, daarna forumbijdragen.
+- Maximaal 8 bronnen. Geef alleen wat echt relevant is — als er niets relevants is, geef helemaal niets terug (geen tekst).`;
 
 // Rubriek-tags (komen overeen met NLFR tag-URLs)
 const RUBRIEKEN = {
@@ -165,17 +136,19 @@ async function serperSearch(q, rubriekTag) {
   if (!key) throw new Error('SERPER_API_KEY niet geconfigureerd');
 
   const rubriekTerm = rubriekTag ? ' ' + rubriekTag.replace(/\+/g, ' ') : '';
+  // NLFR (NING) wordt dun geïndexeerd; vraag daar meer resultaten op (num 20).
+  // Serper rekent per query, niet per resultaat — dit is vrijwel gratis.
   const queries = [
-    `${q}${rubriekTerm} site:infofrankrijk.com`,
-    `${q}${rubriekTerm} site:nederlanders.fr -inurl:/m/`,
+    { q: `${q}${rubriekTerm} site:infofrankrijk.com`, num: 10 },
+    { q: `${q}${rubriekTerm} site:nederlanders.fr -inurl:/m/`, num: 20 },
   ];
 
   const settled = await Promise.allSettled(
-    queries.map(async (query) => {
+    queries.map(async ({ q: query, num }) => {
       const res = await fetch('https://google.serper.dev/search', {
         method: 'POST',
         headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: query, num: 10, gl: 'fr', hl: 'nl' }),
+        body: JSON.stringify({ q: query, num, gl: 'fr', hl: 'nl' }),
       });
       if (!res.ok) return [];
       const data = await res.json().catch(() => ({}));
@@ -201,6 +174,115 @@ async function serperSearch(q, rubriekTag) {
     }
   }
   return hits;
+}
+
+// Type bepalen: IF voor infofrankrijk.com, anders forum (NLFR). Geen "leestip" meer —
+// promoted/leestips zijn niet betrouwbaar te onderscheiden, en NLFR = forumbijdragen.
+function normalizeType(raw, url) {
+  const t = (raw || '').trim().toLowerCase();
+  if (url && url.includes('infofrankrijk.com')) return 'if';
+  if (url && url.includes('nederlanders.fr')) return 'forum';
+  if (t === 'if' || t === 'forum') return t;
+  return 'forum';
+}
+
+// Lege/placeholder-velden teruggeven als lege string — nooit "—" of "onbekend" tonen.
+function cleanField(v) {
+  const s = (v || '').trim();
+  if (!s || /^[-–—]+$/.test(s) || /^(onbekend|n\/?a|geen|unknown|null)$/i.test(s)) return '';
+  return s;
+}
+
+// Tolerante parser voor de BRON-blokken die Haiku produceert. Verdraagt streepjes,
+// sterretjes en spaties rond de | -tekens. Onbekende regels worden GENEGEERD (nooit
+// als ruwe tekst doorgegeven), zodat losse markup nooit op het scherm belandt.
+function parseSources(text) {
+  if (!text) return [];
+  const sources = [];
+  let cur = null;
+  const inlineSamenv = /SAMENVATTING\s*:/i;
+  for (const raw of text.split('\n')) {
+    let line = raw.replace(/\*\*/g, '').replace(/^[\s>•*\-–—]+/, '').replace(/[\s\-–—]+$/, '').trim();
+    if (!line) continue;
+
+    const bronMatch = /^BRON\s*\|(.*)$/i.exec(line);
+    if (bronMatch) {
+      if (cur) sources.push(cur);
+      const parts = bronMatch[1].split('|').map(s => s.trim());
+      const url = parts[2] || '';
+      let datum = parts[4] || '';
+      let inlineSummary = '';
+      if (inlineSamenv.test(datum)) {
+        const split = datum.split(inlineSamenv);
+        datum = split[0].trim();
+        inlineSummary = (split[1] || '').trim();
+      }
+      cur = {
+        type: normalizeType(parts[0], url),
+        titel: parts[1] || '',
+        url,
+        auteur: cleanField(parts[3]),
+        datum: cleanField(datum),
+        samenvatting: inlineSummary,
+      };
+      continue;
+    }
+
+    const sm = inlineSamenv.exec(line);
+    if (sm && line.slice(0, sm.index).trim() === '') {
+      if (cur) cur.samenvatting = line.slice(sm.index + sm[0].length).trim();
+      continue;
+    }
+
+    // Vervolgregel van een samenvatting; losse tekst zonder bron wordt genegeerd.
+    if (cur) {
+      cur.samenvatting = cur.samenvatting ? `${cur.samenvatting} ${line}` : line;
+    }
+  }
+  if (cur) sources.push(cur);
+  return sources;
+}
+
+// Lichte verrijking: haal alleen voor de top-N (recency) NLFR-bijdragen het
+// reactieaantal (en weergaven) van de NING-pagina. Niet alle treffers — alleen de
+// top, om latentie laag te houden. Bij geen data: veld blijft leeg/undefined.
+async function enrichTopThreads(threads, topN = 3) {
+  const candidates = rankThreads(threads)
+    .filter(t => t.url && t.url.includes('nederlanders.fr'))
+    .slice(0, topN);
+  if (candidates.length === 0) return threads;
+
+  const enriched = new Map();
+  await Promise.allSettled(
+    candidates.map(async (t) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(t.url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'NLFR-IF-Zoek/1.0' },
+        });
+        clearTimeout(timer);
+        if (!res.ok) return;
+        const html = await res.text();
+
+        let replyCount = (html.match(/Reactie van/g) || []).length;
+        if (!replyCount) {
+          const m = html.match(/(\d+)\s*Reacties?/i);
+          if (m) replyCount = parseInt(m[1], 10);
+        }
+        let views = null;
+        const vm = html.match(/Weergaven:\s*([\d.]+)/);
+        if (vm) views = parseInt(vm[1].replace(/\./g, ''), 10);
+
+        enriched.set(t.url, { replyCount, views });
+      } catch {
+        clearTimeout(timer);
+      }
+    })
+  );
+
+  return threads.map(t => (enriched.has(t.url) ? { ...t, ...enriched.get(t.url) } : t));
 }
 
 function rankThreads(threads) {
@@ -310,7 +392,7 @@ export default async function handler(req, res) {
         .map((h, i) => `[${i + 1}] ${h.title}\nURL: ${h.link}${h.date ? `\nDatum: ${h.date}` : ''}\nSnippet: ${h.snippet}`)
         .join('\n\n');
 
-      const userMessage = `Hieronder de zoekresultaten voor: "${q}"${rubriekTag ? `\n(rubriekfilter: "${rubriek}")` : ''}.\n\nPresenteer de relevante bronnen volgens je instructies: eerst de BRON-blokken (IF eerst, dan leestips, dan forum), daarna de "---THREADS---"-sectie. Gebruik UITSLUITEND de onderstaande URLs — verzin niets.\n\n${hitsText}`;
+      const userMessage = `Hieronder de zoekresultaten voor: "${q}"${rubriekTag ? `\n(rubriekfilter: "${rubriek}")` : ''}.\n\nPresenteer de relevante bronnen als BRON-blokken volgens je instructies (IF-bronnen eerst, dan forumbijdragen). Gebruik UITSLUITEND de onderstaande URLs — verzin niets, en laat auteur/datum leeg als die er niet bij staan.\n\n${hitsText}`;
 
       const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -341,21 +423,6 @@ export default async function handler(req, res) {
       fullText = textBlocks.map(b => b.text).join('\n\n');
     }
 
-    const threadMarker = '---THREADS---';
-    const markerIndex = fullText.indexOf(threadMarker);
-
-    const preThreads = markerIndex !== -1 ? fullText.slice(0, markerIndex) : fullText;
-    const postThreads = markerIndex !== -1 ? fullText.slice(markerIndex + threadMarker.length) : '';
-
-    const normalizeType = (raw, url) => {
-      let t = (raw || '').trim().toLowerCase();
-      if (t !== 'if' && t !== 'leestip' && t !== 'forum') {
-        if (url && url.includes('infofrankrijk.com')) t = 'if';
-        else if (url && (url.includes('/profiles/blogs/') || url.includes('/profiles/blog/'))) t = 'leestip';
-        else t = 'forum';
-      }
-      return t;
-    };
     const cutoffYear = new Date().getFullYear() - 5;
     const validUrl = (url) => {
       try {
@@ -363,98 +430,42 @@ export default async function handler(req, res) {
         return u.hostname.includes('nederlanders.fr') || u.hostname.includes('infofrankrijk.com');
       } catch { return false; }
     };
-    const validSource = (s) => {
-      if (!s.titel || !s.url) return false;
-      if (!validUrl(s.url)) return false;
-      if (s.url.includes('/m/')) return false;
-      if (s.type === 'if') return true;
-      const m = s.date && s.date.match(/(20\d{2})/);
+    // Tijdfilter (ongewijzigd): forumbijdragen ouder dan cutoffYear vallen af;
+    // items zonder herkenbaar jaartal blijven; IF mag ouder zijn.
+    const passesTimeFilter = (type, dateStr) => {
+      if (type === 'if') return true;
+      const m = dateStr && dateStr.match(/(20\d{2})/);
       if (!m) return true;
       return parseInt(m[1], 10) >= cutoffYear;
     };
-    const rank = { 'if': 0, 'leestip': 1, 'forum': 2 };
+    const rank = { 'if': 0, 'forum': 1 };
 
-    // BRON-blokken parsen: meer-line per bron, gescheiden door blanco regels of nieuwe BRON|
-    let narrative = '';
-    let sources = [];
-    if (preThreads.trim()) {
-      const lines = preThreads.split('\n');
-      const introLines = [];
-      let introDone = false;
-      let current = null;
-      const closingPatterns = [
-        /^Forumbijdragen zijn persoonlijke ervaringen/i,
-        /^Voor een persoonlijk, geverifieerd antwoord/i,
-      ];
-      for (const rawLine of lines) {
-        const line = rawLine.replace(/\*\*/g, '').trimEnd();
-        if (closingPatterns.some(p => p.test(line.trim()))) continue;
-        if (line.startsWith('BRON|')) {
-          if (current) sources.push(current);
-          const parts = line.split('|');
-          const url = (parts[3] || '').trim();
-          current = {
-            type: normalizeType(parts[1], url),
-            titel: (parts[2] || '').trim(),
-            url,
-            auteur: (parts[4] || '').trim(),
-            datum: (parts[5] || '').trim(),
-            samenvatting: '',
-          };
-          introDone = true;
-        } else if (current) {
-          const m = line.match(/^SAMENVATTING:\s*(.*)$/i);
-          if (m) {
-            current.samenvatting = m[1].trim();
-          } else if (line.trim()) {
-            current.samenvatting = current.samenvatting
-              ? current.samenvatting + ' ' + line.trim()
-              : line.trim();
-          }
-        } else if (!introDone && line.trim()) {
-          introLines.push(line.trim());
-        }
-      }
-      if (current) sources.push(current);
+    // BRON-blokken parsen met de tolerante parser; daarna valideren, tijdfilteren,
+    // sorteren (IF eerst) en begrenzen op 8. Losse markup belandt nooit in de output.
+    const sources = parseSources(fullText)
+      .filter(s => s.titel && s.url && validUrl(s.url) && !s.url.includes('/m/'))
+      .filter(s => passesTimeFilter(s.type, s.datum))
+      .sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9))
+      .slice(0, 8);
 
-      sources = sources
-        .filter(validSource)
-        .sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
+    // Vaste, correcte intro (terminologie-neutraal) — niet door het model bepaald.
+    const narrative = sources.length > 0
+      ? `Over "${q}" vonden we het volgende in het netwerk:`
+      : '';
 
-      narrative = introLines.join(' ').trim();
-    }
+    // "Recente bijdragen"-lijst afgeleid van dezelfde gevalideerde bronnen.
+    const threads = sources.map(s => ({
+      title: s.titel,
+      url: s.url,
+      author: s.auteur,
+      date: s.datum,
+      type: s.type,
+    }));
 
-    // THREADS-sectie: bestaande logica
-    let threads = [];
-    if (postThreads.trim()) {
-      threads = postThreads
-        .split('\n')
-        .filter(line => line.startsWith('THREAD|'))
-        .map(line => {
-          const parts = line.split('|');
-          const url = parts[2] || '';
-          return {
-            title: parts[1] || '',
-            url,
-            author: parts[3] || '',
-            date: parts[4] || '',
-            type: normalizeType(parts[5], url),
-          };
-        })
-        .filter(t => t.title && t.url && validUrl(t.url))
-        .filter(t => !t.url.includes('/m/'))
-        .filter(t => {
-          if (t.type === 'if') return true;
-          const m = t.date && t.date.match(/(20\d{2})/);
-          if (!m) return true;
-          return parseInt(m[1], 10) >= cutoffYear;
-        });
-      threads.sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9));
-    }
-
-    // Geen live HTML-scrape meer (enrichThreads is vervallen): Serper levert titel,
-    // URL en datum, en dat is wat de UI nodig heeft. rankThreads valt terug op recency.
-    const rankedThreads = rankThreads(threads);
+    // Lichte verrijking van alleen de top-N NLFR-bijdragen, dan ranken op
+    // reactieaantal × recency (IF bovenaan).
+    const enrichedThreads = await enrichTopThreads(threads);
+    const rankedThreads = rankThreads(enrichedThreads);
 
     const responseData = {
       narrative,
