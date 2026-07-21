@@ -463,6 +463,30 @@ export default function App() {
   const [limitInfo, setLimitInfo] = useState(null);
   const [autoSearchDone, setAutoSearchDone] = useState(false);
   const inputRef = useRef(null);
+  const appRef = useRef(null);
+
+  // Hoogtemelding in embed-modus: laat het iframe op de NING-pagina meegroeien
+  // met de inhoud. We meten uitsluitend het root-element (.app) via een
+  // ResizeObserver — nooit de scrollhoogte van de body of iets viewport-
+  // afhankelijks, om een terugkoppellus met de iframe-hoogte te vermijden —
+  // en versturen alleen als de waarde afwijkt van de laatst gemelde.
+  useEffect(() => {
+    if (!IS_EMBED) return;
+    const el = appRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastSent = -1;
+    const report = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h !== lastSent) {
+        lastSent = h;
+        window.parent.postMessage({ nlfrZoekHeight: h }, "*");
+      }
+    };
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    report();
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.focus();
@@ -569,7 +593,7 @@ export default function App() {
   };
 
   return (
-    <div className={IS_EMBED ? "app is-embed" : "app"}>
+    <div ref={appRef} className={IS_EMBED ? "app is-embed" : "app"}>
       {!IS_EMBED && <Topbar subscriber={isSubscriber} />}
 
       {state === "idle" && (

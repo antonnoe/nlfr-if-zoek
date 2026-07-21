@@ -1,0 +1,96 @@
+<!-- Referentiekopie — plakken als NING-bestand ai-zoekresultaat -->
+<!--
+  Deze pagina toont het menu (iframe naar nlfr-menu-2) en daaronder de
+  AI-zoek-app in embed-modus. Het zoek-iframe scrollt niet intern: het groeit
+  mee met de inhoud dankzij het bericht nlfrZoekHeight dat de app verstuurt.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+  .nlfr-embed-wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  .nlfr-header {
+    text-align: center;
+    padding: 18px 16px 10px;
+  }
+  .nlfr-wordmark {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 30px;
+    line-height: 1.1;
+    color: #1a1a1a;
+    letter-spacing: -0.01em;
+  }
+  .nlfr-wordmark span {
+    color: #460000;
+  }
+  .nlfr-tagline {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #6a6a6a;
+    font-weight: 400;
+  }
+
+  /* Menu-iframe: hoogte wordt gezet via nlfrMenuHeight. */
+  #menu {
+    display: block;
+    width: 100%;
+    border: 0;
+    height: 60px;
+  }
+
+  /* Zoek-iframe: geen interne scroll; starthoogte 600px, groeit daarna mee
+     met de inhoud via het bericht nlfrZoekHeight. */
+  #zoek {
+    display: block;
+    width: 100%;
+    border: 0;
+    height: 600px;
+  }
+</style>
+
+<div class="nlfr-embed-wrap">
+  <div class="nlfr-header">
+    <div class="nlfr-wordmark">Nederlanders<span>.fr</span></div>
+    <div class="nlfr-tagline">AI-zoek · Nederlanders.fr &amp; Infofrankrijk</div>
+  </div>
+
+  <iframe id="menu" src="https://www.nederlanders.fr/nlfr-menu-2" scrolling="no"></iframe>
+
+  <iframe id="zoek" src="https://nlfr-if-zoek.vercel.app/?embed=1" scrolling="no"></iframe>
+</div>
+
+<script>
+(function () {
+  var menu = document.getElementById("menu");
+  var zoek = document.getElementById("zoek");
+
+  // Zet een eventuele ?q= uit de pagina-URL door naar de app in embed-modus.
+  var q = new URLSearchParams(window.location.search).get("q");
+  if (q) {
+    zoek.src = "https://nlfr-if-zoek.vercel.app/?embed=1&q=" + encodeURIComponent(q);
+  }
+
+  // Eén message-listener voor beide iframes.
+  window.addEventListener("message", function (e) {
+    if (!e || !e.data) return;
+
+    // Menu-iframe: hoogte melden vanuit nlfr-menu-2.
+    if (typeof e.data.nlfrMenuHeight === "number") {
+      var mh = e.data.nlfrMenuHeight + "px";
+      if (menu.style.height !== mh) menu.style.height = mh;
+    }
+
+    // Zoek-iframe: hoogte melden vanuit de AI-zoek-app (+8px marge).
+    if (typeof e.data.nlfrZoekHeight === "number") {
+      var zh = (e.data.nlfrZoekHeight + 8) + "px";
+      if (zoek.style.height !== zh) zoek.style.height = zh;
+    }
+  });
+})();
+</script>
