@@ -2,6 +2,16 @@ import { useState, useEffect, useRef } from "react";
 
 const TOKEN_STORAGE_KEY = "nlfr_if_zoek_token";
 
+/* Embed-modus: als de app in een iframe onder een eigen menu draait (?embed=1),
+   verbergen we het app-eigen logo, de hero-zoekbalk en de footer. */
+const IS_EMBED = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("embed") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 /* ---------- icons ---------- */
 const IconSearch = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -559,26 +569,26 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <Topbar subscriber={isSubscriber} />
+    <div className={IS_EMBED ? "app is-embed" : "app"}>
+      {!IS_EMBED && <Topbar subscriber={isSubscriber} />}
 
       {state === "idle" && (
         <>
-          <Hero {...heroProps} />
+          {!IS_EMBED && <Hero {...heroProps} />}
           <Examples onPick={pickExample} />
         </>
       )}
 
       {state === "searching" && (
         <>
-          <Hero {...heroProps} />
+          {!IS_EMBED && <Hero {...heroProps} />}
           <Searching />
         </>
       )}
 
       {state === "results" && (
         <>
-          <Hero {...heroProps} />
+          {!IS_EMBED && <Hero {...heroProps} />}
           <Results
             query={query}
             rubriek={rubriek}
@@ -594,7 +604,7 @@ export default function App() {
 
       {state === "limit" && limitInfo && (
         <>
-          <Hero {...heroProps} />
+          {!IS_EMBED && <Hero {...heroProps} />}
           <LimitCard
             subscriber={limitInfo.subscriber}
             message={limitInfo.message}
@@ -605,12 +615,12 @@ export default function App() {
 
       {state === "error" && (
         <>
-          <Hero {...heroProps} />
+          {!IS_EMBED && <Hero {...heroProps} />}
           <ErrorCard message={errorMsg} onReset={onReset} />
         </>
       )}
 
-      <Footer />
+      {!IS_EMBED && <Footer />}
     </div>
   );
 }

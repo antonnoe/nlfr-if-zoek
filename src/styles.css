@@ -930,6 +930,21 @@ button { font-family: inherit; cursor: pointer; }
 /* ===== NLFR huisstijl: Poppins + bordeaux (toegevoegd) ===== */
 .brand-mark,.title,.query-q,.sources-title,.cta-title,.limit-title,.searching-label{font-weight:700;}
 .brand-mark em,.title em,.query-q .quote,.searching-label,.source-num,.footer-marks span,.cta-icon{font-style:normal;}
+
+/* ===== Embed-modus (?embed=1): zonder topbar/hero/footer ===== */
+/* Compacte top-marge zodat de inhoud netjes bovenaan begint, zonder de
+   grote lege ruimte waar de hero stond. */
+.is-embed {
+  min-height: 0;
+  padding-top: 20px;
+}
+/* De voorbeeld-lijst (idle-state) stond onder de hero met een scheidingslijn;
+   in embed-modus is er niets boven, dus scheidingslijn en grote marge weg. */
+.is-embed .examples {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
 .title em,.query-q .quote{color:var(--wine);}
 .source-num{font-weight:700;}
 .footer-marks span{font-weight:600;}
