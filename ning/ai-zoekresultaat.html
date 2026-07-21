@@ -1,96 +1,71 @@
-<!-- Referentiekopie — plakken als NING-bestand ai-zoekresultaat -->
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-zoekresultaat — Nederlanders.fr</title>
 <!--
-  Deze pagina toont het menu (iframe naar nlfr-menu-2) en daaronder de
-  AI-zoek-app in embed-modus. Het zoek-iframe scrollt niet intern: het groeit
-  mee met de inhoud dankzij het bericht nlfrZoekHeight dat de app verstuurt.
+  Referentiekopie — plakken als NING-bestand ai-zoekresultaat
+  Pagina: nederlanders.fr/ai-zoekresultaat (v3, 21-07-2026)
+  Header + menu-module bovenaan (zelfde omgeving), daaronder de AI-zoek-app,
+  die de zoekterm (?q=) uit deze URL meekrijgt.
+  v3: zoek-iframe groeit mee met de inhoud (nlfrZoekHeight uit de app,
+      embed-modus) — geen interne scrollbalk meer; alleen de pagina scrolt.
+  Pas --nlfr-max aan als de NING-kolom smaller/breder is (bv. 940px).
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Mulish:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  .nlfr-embed-wrap {
-    max-width: 760px;
-    margin: 0 auto;
-    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .nlfr-header {
-    text-align: center;
-    padding: 18px 16px 10px;
-  }
-  .nlfr-wordmark {
-    font-family: 'Poppins', sans-serif;
-    font-weight: 700;
-    font-size: 30px;
-    line-height: 1.1;
-    color: #1a1a1a;
-    letter-spacing: -0.01em;
-  }
-  .nlfr-wordmark span {
-    color: #460000;
-  }
-  .nlfr-tagline {
-    margin-top: 4px;
-    font-size: 13px;
-    color: #6a6a6a;
-    font-weight: 400;
-  }
-
-  /* Menu-iframe: hoogte wordt gezet via nlfrMenuHeight. */
-  #menu {
-    display: block;
-    width: 100%;
-    border: 0;
-    height: 60px;
-  }
-
-  /* Zoek-iframe: geen interne scroll; starthoogte 600px, groeit daarna mee
-     met de inhoud via het bericht nlfrZoekHeight. */
-  #zoek {
-    display: block;
-    width: 100%;
-    border: 0;
-    height: 600px;
+  :root { --nlfr-max: 1000px; --brand: #800000; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #f6f2ef; }
+  body { font-family: 'Mulish', system-ui, sans-serif; }
+  .wrap { max-width: var(--nlfr-max); margin: 0 auto; }
+  .nlfr-hd { padding: 22px 20px 14px; }
+  .nlfr-hd .wordmark { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 40px; line-height: 1; letter-spacing: -.02em; color: var(--brand); }
+  .nlfr-hd .wordmark span { color: #460000; }
+  .nlfr-hd .tag { font-family: 'Mulish', sans-serif; font-weight: 600; font-size: 17px; color: var(--brand); margin-top: 8px; }
+  iframe { display: block; width: 100%; border: 0; }
+  #nlfrMenu { height: 230px; }
+  #zoek { height: 600px; background: #f6f2ef; }
+  @media (max-width: 640px) {
+    .nlfr-hd .wordmark { font-size: 30px; }
+    .nlfr-hd .tag { font-size: 14px; }
   }
 </style>
-
-<div class="nlfr-embed-wrap">
-  <div class="nlfr-header">
-    <div class="nlfr-wordmark">Nederlanders<span>.fr</span></div>
-    <div class="nlfr-tagline">AI-zoek · Nederlanders.fr &amp; Infofrankrijk</div>
+</head>
+<body>
+  <div class="wrap">
+    <header class="nlfr-hd">
+      <div class="wordmark">Nederlanders<span>.fr</span></div>
+      <div class="tag">Hèt netwerk van, voor en door Nederlandstaligen in Frankrijk — zegt het voort!</div>
+    </header>
+    <iframe id="nlfrMenu" src="https://www.nederlanders.fr/nlfr-menu-2" scrolling="no" title="Menu" name="nlfrMenu"></iframe>
+    <iframe id="zoek" src="about:blank" scrolling="no" title="AI-zoekresultaten" name="zoek"></iframe>
   </div>
 
-  <iframe id="menu" src="https://www.nederlanders.fr/nlfr-menu-2" scrolling="no"></iframe>
-
-  <iframe id="zoek" src="https://nlfr-if-zoek.vercel.app/?embed=1" scrolling="no"></iframe>
-</div>
-
-<script>
-(function () {
-  var menu = document.getElementById("menu");
-  var zoek = document.getElementById("zoek");
-
-  // Zet een eventuele ?q= uit de pagina-URL door naar de app in embed-modus.
-  var q = new URLSearchParams(window.location.search).get("q");
-  if (q) {
-    zoek.src = "https://nlfr-if-zoek.vercel.app/?embed=1&q=" + encodeURIComponent(q);
-  }
-
-  // Eén message-listener voor beide iframes.
-  window.addEventListener("message", function (e) {
-    if (!e || !e.data) return;
-
-    // Menu-iframe: hoogte melden vanuit nlfr-menu-2.
-    if (typeof e.data.nlfrMenuHeight === "number") {
-      var mh = e.data.nlfrMenuHeight + "px";
-      if (menu.style.height !== mh) menu.style.height = mh;
-    }
-
-    // Zoek-iframe: hoogte melden vanuit de AI-zoek-app (+8px marge).
-    if (typeof e.data.nlfrZoekHeight === "number") {
-      var zh = (e.data.nlfrZoekHeight + 8) + "px";
-      if (zoek.style.height !== zh) zoek.style.height = zh;
-    }
-  });
-})();
-</script>
+  <script>
+    (function () {
+      var q = "";
+      try { q = new URLSearchParams(window.location.search).get("q") || ""; } catch (e) {}
+      var base = "https://nlfr-if-zoek.vercel.app/?embed=1";
+      document.getElementById("zoek").src = base + (q ? ("&q=" + encodeURIComponent(q)) : "");
+      var menu = document.getElementById("nlfrMenu");
+      var zoek = document.getElementById("zoek");
+      var lastMenuH = 0, lastZoekH = 0;
+      window.addEventListener("message", function (e) {
+        if (!e.data) return;
+        if (e.data.nlfrMenuHeight && e.data.nlfrMenuHeight !== lastMenuH) {
+          lastMenuH = e.data.nlfrMenuHeight;
+          menu.style.height = (lastMenuH + 4) + "px";
+        }
+        if (e.data.nlfrZoekHeight && e.data.nlfrZoekHeight !== lastZoekH) {
+          lastZoekH = e.data.nlfrZoekHeight;
+          zoek.style.height = (lastZoekH + 8) + "px";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
