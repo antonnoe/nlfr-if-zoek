@@ -394,26 +394,38 @@ export default async function handler(req, res) {
 
       const userMessage = `Hieronder de zoekresultaten voor: "${q}"${rubriekTag ? `\n(rubriekfilter: "${rubriek}")` : ''}.\n\nPresenteer de relevante bronnen als BRON-blokken volgens je instructies (IF-bronnen eerst, dan forumbijdragen). Gebruik UITSLUITEND de onderstaande URLs — verzin niets, en laat auteur/datum leeg als die er niet bij staan.\n\n${hitsText}`;
 
-      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      const anthropicBody = JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userMessage }],
+      });
+      const callAnthropic = () => fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 2000,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userMessage }],
-        }),
+        body: anthropicBody,
       });
+
+      // Bij tijdelijke drukte (429 of 5xx, o.a. 529 "Overloaded"): kort wachten en
+      // automatisch opnieuw proberen (max 2 extra pogingen) voordat we opgeven.
+      let apiRes = await callAnthropic();
+      for (let attempt = 0; attempt < 2 && (apiRes.status === 429 || apiRes.status >= 500); attempt++) {
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        apiRes = await callAnthropic();
+      }
 
       if (!apiRes.ok) {
         const errBody = await apiRes.json().catch(() => ({}));
         console.error('Anthropic API error:', apiRes.status, errBody);
-        return res.status(apiRes.status).json({
-          error: errBody?.error?.message || `Anthropic API fout (${apiRes.status})`,
+        const busy = apiRes.status === 429 || apiRes.status >= 500;
+        return res.status(busy ? 503 : apiRes.status).json({
+          error: busy
+            ? 'Het is even druk, probeer het zo nog eens.'
+            : (errBody?.error?.message || `Anthropic API fout (${apiRes.status})`),
         });
       }
 
