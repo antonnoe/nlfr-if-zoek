@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NLFR hoofdmenu</title>
+<!--
+  Referentiekopie — plakken als NING-bestand nlfr-menu-2
+  NLFR HOOFDMENU — embed-versie (FIX 21-07-2026)
+  Plaats deze HTML op de pagina die je in het iframe laadt (bv. /nlfr-menu-2).
+  Het iframe past zijn hoogte automatisch aan via postMessage(nlfrMenuHeight).
+  FIX 1: hoogte wordt gemeten op de .card (niet body.scrollHeight) en alleen
+         gemeld bij wijziging — dit stopt de oneindige groei-lus.
+  FIX 2: home-knop heeft target="_parent" — laadt niet meer in het iframe zelf.
+  Beheer-ID hieronder aanpasbaar (ADMIN_ID).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Mulish:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --brand: #800000; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font-family: 'Mulish', system-ui, sans-serif; line-height: 1.6; color: #3a3330; padding: 6px; }
+  a { color: var(--brand); text-decoration: none; }
+  button { font-family: inherit; cursor: pointer; }
+  input::placeholder { color: #9a8f8c; }
+  input:focus { outline: none; }
+  .card { background: #fff; border: 1px solid rgba(128,0,0,.12); border-radius: 18px; box-shadow: 0 12px 40px -26px rgba(90,0,0,.55); overflow: hidden; }
+  .top { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+
+  .searchrow { display: flex; align-items: stretch; gap: 8px; }
+  .searchform { flex: 2 1 0; min-width: 0; display: flex; }
+  .searchbox { display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0; background: #fff; border: 1.5px solid rgba(128,0,0,.16); border-radius: 11px; padding: 3px 3px 3px 12px; transition: border-color .18s, box-shadow .18s; }
+  .searchbox.focus { border-color: rgba(128,0,0,.45); box-shadow: 0 8px 24px -14px rgba(128,0,0,.4); }
+  .searchbox input { flex: 1 1 auto; border: none; background: transparent; font-size: 15px; color: #3a3330; padding: 7px 0; min-width: 0; }
+  .zoek { display: inline-flex; align-items: center; gap: 6px; background: var(--brand); color: #fff; border: none; border-radius: 9px; padding: 8px 15px; font-family: 'Poppins',sans-serif; font-weight: 600; font-size: 13.5px; flex: 0 0 auto; transition: filter .12s, transform .12s; }
+  .zoek:hover { filter: brightness(1.09); transform: translateY(-1px); }
+  .clear { display: none; place-items: center; width: 28px; height: 28px; border-radius: 999px; border: none; background: rgba(128,0,0,.06); color: #8a7f7c; flex: 0 0 auto; }
+  .clear.show { display: grid; }
+
+  .pull { position: relative; flex: 1 1 0; min-width: 0; display: flex; }
+  .pull-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; border-radius: 11px; border: 1.5px solid rgba(128,0,0,.18); background: rgba(128,0,0,.05); color: var(--brand); transition: background .15s, border-color .15s; }
+  .pull-btn:hover { background: rgba(128,0,0,.09); }
+  .pull-btn.active { background: #fff; border-color: var(--brand); }
+  .pull-btn .lbl { display: inline-flex; align-items: center; gap: 8px; font-family: 'Poppins',sans-serif; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .caret { transition: transform .2s; flex: 0 0 auto; }
+  .active .caret, .door.active .caret { transform: rotate(180deg); }
+
+  .navrow { display: flex; align-items: stretch; gap: 8px; }
+  .home, .admin { display: grid; place-items: center; width: 46px; flex: 0 0 auto; border-radius: 12px; color: var(--brand); border: 1px solid rgba(128,0,0,.16); background: rgba(128,0,0,.05); }
+  .home:hover, .admin:hover { background: rgba(128,0,0,.10); }
+  .admin { display: none; }
+  .admin.show { display: grid; }
+  .admin.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .doors { display: flex; gap: 8px; flex: 1 1 auto; }
+  .door { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 7px 6px; border-radius: 12px; line-height: 1.15; border: 1px solid rgba(128,0,0,.14); background: rgba(128,0,0,.04); color: var(--brand); transition: background .15s, border-color .15s; }
+  .door:hover { background: rgba(128,0,0,.09); }
+  .door.active { background: #fff; border-color: rgba(128,0,0,.35); box-shadow: inset 0 -3px 0 var(--brand); }
+  .door .t { display: inline-flex; align-items: center; gap: 6px; font-family: 'Poppins',sans-serif; font-weight: 600; font-size: 15px; }
+  .door .s { font-size: 11px; color: #9a8f8c; }
+  .door.active .s { color: var(--brand); }
+  .door.locked { color: #8a7f7c; }
+
+  .drawer { display: none; border-top: 1px solid rgba(128,0,0,.10); background: #fdfbfa; padding: 18px; animation: az .24s cubic-bezier(.16,1,.3,1) both; }
+  .drawer.open { display: block; }
+  @keyframes az { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(1.5); } }
+
+  .cols { display: grid; gap: 8px 26px; }
+  .grp .h { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 12.5px; color: var(--brand); margin-bottom: 7px; padding-bottom: 6px; border-bottom: 1px solid rgba(128,0,0,.12); }
+  .grp .lk { display: flex; flex-direction: column; gap: 1px; }
+  .drawer a.item { display: block; padding: 5px 10px; color: #5b524f; font-size: 13.5px; border-left: 2px solid rgba(128,0,0,.14); border-radius: 0 6px 6px 0; transition: background .12s, color .12s, border-color .12s; }
+  .drawer a.item:hover { background: rgba(128,0,0,.06); color: var(--brand); border-color: var(--brand); }
+  .drawer a.item.emph { color: var(--brand); border-left-color: rgba(128,0,0,.4); }
+  .drawer a.accent { display: block; padding: 7px 12px; margin: 2px 0; border-radius: 8px; background: var(--brand); color: #fff; font-family: 'Poppins',sans-serif; font-weight: 600; font-size: 13.5px; }
+  .drawer a.accent:hover { filter: brightness(1.1); }
+
+  .ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .cta { display: flex; flex-direction: column; gap: 1px; flex: 1 1 200px; border-radius: 12px; padding: 12px 18px; }
+  .cta .ct { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; gap: 7px; }
+  .cta .cs { font-size: 13px; }
+  .cta.fill { background: var(--brand); color: #fff; }
+  .cta.fill:hover { filter: brightness(1.1); }
+  .cta.fill .cs { opacity: .85; }
+  .cta.tint { background: rgba(128,0,0,.07); color: var(--brand); border: 1px solid rgba(128,0,0,.2); }
+  .cta.tint:hover { background: rgba(128,0,0,.12); }
+  .cta.tint .cs { color: #8a7f7c; }
+  .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--brand); animation: pulse 1.6s ease-in-out infinite; }
+
+  .teaser h3 { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 18px; margin: 0 0 6px; color: #5c0f0f; }
+  .teaser p { margin: 0 0 12px; font-size: 14px; color: #6d6360; }
+  .perks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; margin: 0 0 16px; max-width: 640px; }
+  .perk { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #5b524f; }
+  .teaser .btns { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .btn-p { background: var(--brand); color: #fff; padding: 11px 20px; border-radius: 10px; font-family: 'Poppins',sans-serif; font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .btn-p:hover { filter: brightness(1.1); }
+  .btn-o { background: #fff; color: var(--brand); border: 1.5px solid var(--brand); padding: 11px 20px; border-radius: 10px; font-family: 'Poppins',sans-serif; font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .btn-o:hover { background: rgba(128,0,0,.06); }
+  .adminlinks { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .adminlinks .h { font-family: 'Poppins',sans-serif; font-weight: 700; font-size: 12px; color: #8a7f7c; margin-right: 4px; }
+  .adminlinks a { padding: 6px 12px; font-size: 13px; color: #5b524f; border-radius: 8px; background: #fff; border: 1px solid rgba(128,0,0,.12); font-weight: 600; }
+  .adminlinks a:hover { background: rgba(128,0,0,.06); color: var(--brand); }
+
+  .band { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 16px; border-top: 1px solid rgba(128,0,0,.1); background: #fdf9f8; }
+  .band .left { display: flex; gap: 8px; flex-wrap: wrap; }
+  .band .left a { padding: 8px 16px; border-radius: 9px; font-family: 'Poppins',sans-serif; font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+  .band .left a.light { background: rgba(128,0,0,.06); color: var(--brand); border: 1px solid rgba(128,0,0,.18); }
+  .band .left a.light:hover { background: rgba(128,0,0,.11); }
+  .band .left a.fill { background: var(--brand); color: #fff; }
+  .band .left a.fill:hover { filter: brightness(1.1); }
+  .eco { display: flex; align-items: center; gap: 10px; font-size: 13.5px; white-space: nowrap; }
+  .eco .pfx { color: #a99e9a; }
+  .eco a { font-family: 'Poppins',sans-serif; font-weight: 600; }
+  .eco .sep { color: rgba(128,0,0,.3); }
+
+  @media (max-width: 1040px) { .eco .pfx { display: none; } }
+  @media (max-width: 820px) {
+    .searchrow { flex-wrap: wrap; }
+    .searchform, .pull { flex: 1 1 100%; }
+    .doors { flex-wrap: wrap; }
+    .door { flex: 1 1 42%; }
+    .cols { grid-template-columns: 1fr 1fr !important; }
+  }
+  @media (max-width: 560px) {
+    .cols { grid-template-columns: 1fr !important; }
+    .door { flex: 1 1 100%; }
+    .band { flex-wrap: wrap; }
+    .eco { flex-wrap: wrap; white-space: normal; }
+    .perks { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <div class="searchrow">
+      <form class="searchform" id="searchform">
+        <div class="searchbox" id="searchbox">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="rgba(128,0,0,.6)" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="text" id="q" placeholder="AI-zoek in forum &amp; Infofrankrijk…" autocomplete="off" aria-label="Zoeken">
+          <button type="button" class="clear" id="clear" aria-label="Wissen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          <button type="submit" class="zoek"><svg width="15" height="15" viewBox="0 0 24 24" fill="#fff"><path d="M12 2l1.9 5.3L19 9.2l-5.1 1.9L12 16.4l-1.9-5.3L5 9.2l5.1-1.9z"/></svg>Zoek</button>
+        </div>
+      </form>
+      <div class="pull">
+        <button class="pull-btn" id="pullbtn" aria-haspopup="true" aria-expanded="false">
+          <span class="lbl"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Onderwerpen</span>
+          <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="navrow">
+      <a class="home" href="https://www.nederlanders.fr/" target="_parent" title="Home" aria-label="Home"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M9.75 20v-5.5h4.5V20"/></svg></a>
+      <div class="doors" id="doors"></div>
+      <button class="admin" id="adminbtn" aria-label="Beheer"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    </div>
+  </div>
+  <div class="drawer" id="drawer"></div>
+  <div class="band">
+    <div class="left" id="bandleft"></div>
+    <div class="eco">
+      <span class="pfx">Zusterplatforms:</span>
+      <a href="https://infofrankrijk.com/" target="_blank" rel="noopener">Infofrankrijk</a><span class="sep">·</span>
+      <a href="https://www.cafeclaude.fr/" target="_blank" rel="noopener">Café Claude</a><span class="sep">·</span>
+      <a href="https://nedergids.nl/" target="_blank" rel="noopener">Nedergids</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var ADMIN_ID = "3pjypz5h1ilpc";              // <-- pas aan indien nodig
+  var ZOEK_APP = "https://www.nederlanders.fr/ai-zoekresultaat?q="; // resultatenpagina (menu + zoek-app)
+  var NL = "https://www.nederlanders.fr";
+
+  // ---- Ingelogde gebruiker (same-origin met moederpagina) ----
+  var cp = null;
+  try { if (window.parent && window.parent.ning && window.parent.ning.CurrentProfile) cp = window.parent.ning.CurrentProfile; } catch(e) { cp = null; }
+  var isMember = !!(cp && cp.id);
+  var isAdmin = !!(cp && cp.id === ADMIN_ID);
+  var uid = isMember ? encodeURIComponent(cp.id) : "";
+  var myPage = (cp && cp.profileUrl) ? cp.profileUrl : (NL + "/profiles/settings/editProfileInfo");
+
+  // ---- Link-target: eigen site = zelfde venster, andere site = nieuw tabblad ----
+  function tgt(href){ return href.indexOf("nederlanders.fr") > -1 ? "_parent" : "_blank"; }
+  function link(href, label, cls){
+    var t = tgt(href), rel = (t === "_blank") ? ' rel="noopener"' : '';
+    return '<a class="'+(cls||'item')+'" href="'+href+'" target="'+t+'"'+rel+'>'+label+'</a>';
+  }
+
+  // ---- Data ----
+  var U = function(p){ return NL + p; };
+  var DOORS = {
+    lezen: { cols: 4, groups: [
+      ["Wonen & klussen", [["Woningen algemeen",U("/profiles/blog/list?tag=Woningen+Algemeen")],["Woningbeheer & huishouding",U("/profiles/blog/list?tag=Woningbeheer+en+Huishouding")],["Bouw",U("/profiles/blog/list?tag=Bouw")],["Inrichting",U("/profiles/blog/list?tag=Inrichting")],["Exterieur",U("/profiles/blog/list?tag=Exterieur")],["Telecommunicatie",U("/page/telecommunicatie")]]],
+      ["Werk & ondernemen", [["Werk algemeen",U("/profiles/blog/list?tag=Werk+Algemeen")],["Midden- en kleinbedrijf",U("/profiles/blog/list?tag=Midden-+en+Kleinbedrijf")],["Horeca en toerisme",U("/profiles/blog/list?tag=Horeca+en+Toerisme")],["Vervoer",U("/profiles/blog/list?tag=Vervoer")],["Overige diensten",U("/profiles/blog/list?tag=Overige+Diensten")]]],
+      ["Geld, overheid & migratie", [["Geldzaken",U("/profiles/blog/list?tag=Geldzaken")],["Overheid",U("/profiles/blog/list?tag=Overheid")],["Migratie",U("/profiles/blog/list?tag=Migratie")]]],
+      ["Leren & taal", [["Onderwijs",U("/profiles/blog/list?tag=Onderwijs")],["Cursussen en opleidingen",U("/profiles/blog/list?tag=Cursussen+en+Opleidingen")],["Kinderen",U("/profiles/blog/list?tag=Kinderen")],["Vertaling",U("/profiles/blog/list?tag=Vertaling")],["Woordenlijsten",U("/profiles/blog/list?tag=Lexicon")]]],
+      ["Leven & zorg", [["Gezondheid, sport & spel",U("/profiles/blog/list?tag=Gezondheid%2C+Sport+en+Spel")],["Ouderverzorging",U("/profiles/blog/list?tag=Ouderverzorging")],["Dieren",U("/profiles/blog/list?tag=Dieren")],["Recepten",U("/profiles/blog/list?tag=Recepten")]]],
+      ["Ontmoeten & cultuur", [["Clubs, verenigingen & bijeenkomsten",U("/profiles/blog/list?tag=Clubs%2C+Verenigingen+en+Bij%C3%A9%C3%A9nkomsten")],["Contact gezocht",U("/profiles/blog/list?tag=Contact+Gezocht")],["Kunst & cultuur",U("/profiles/blog/list?tag=Kunst+en+Cultuur")]]],
+      ["Marktplaats", [["Vastgoed van leden",U("/page/onroerend-goed"),1],["Roerende goederen te koop",U("/profiles/blog/list?tag=Te+Koop+Aangeboden")],["Te koop gevraagd",U("/profiles/blog/list?tag=Te+Koop+Gevraagd")],["Werk aangeboden",U("/profiles/blog/list?tag=Werk+Aangeboden"),1],["Werk gevraagd",U("/profiles/blog/list?tag=Werk+Gevraagd")],["Woningen gevraagd",U("/profiles/blog/list?tag=Woningen+Gevraagd")],["Vakantiewoningen",U("/profiles/blog/list?tag=Vakantiehuis")],["Woningruil",U("/profiles/blog/list?tag=Woningruil")]]],
+      ["Meer in het forum", [["In de schijnwerpers",U("/profiles/blog/list?promoted=1"),1],["Alle berichten",U("/profiles/blog/list")],["Alle foto's",U("/photo")],["Alle video's",U("/video/video")]]]
+    ]},
+    doen: { cols: 2, groups: [
+      ["Plaatsen", [["Plaats bericht",U("/profiles/blog/new")],["Plaats advertentie",U("/page/betaalpagina-berichten")],["Plaats een foto",U("/photo/photo/new")],["Plaats een video",U("/video/video/new")]]],
+      ["Steunen", [["Doneer",U("/page/fundraising-en-donaties"),1],["Word sponsor",U("/page/sponsorprogramma"),1]]]
+    ]},
+    vinden: { cols: 4, groups: [
+      ["Tools & bestemmingen", [["Vervoershub",U("/page/lift-en-transportcentrale")],["Verenigingen in Frankrijk",U("/page/nederlandse-verenigingen-in-frankrijk")],["Frans leren",U("/page/frantastique-1")]]],
+      ["Regels & hulp", [["Huisregels",U("/page/huisregels"),1],["Hulp vinden",U("/page/hulpverlening-in-frankrijk"),1]]],
+      ["Adressen", [["Wegwijs Franse overheid",U("/profiles/blogs/wegwijs-franse-overheid")],["Handige sites",U("/page/handige-sites")],["Nedergids","https://nedergids.nl/"]]],
+      ["Uitgelicht", [["Groepen",U("/groups")],["Onze sponsors",U("/page/sponsors")],["Auteurs",U("/profiles/friend/listFeatured")]]]
+    ]},
+    nieuws: { cols: 2, groups: [
+      ["Lezen", [["Dagelijks Frankrijknieuws",U("/page/dagelijks-frankrijknieuws")],["Ondernemersnieuws",U("/page/dagelijks-ondernemersnieuws-uit-frankrijk")],["Reizen in Frankrijk",U("/page/reizen-in-frankrijk")]]],
+      ["Abonneren", [["Dagelijkse nieuwsbrief","https://laposta.nl/f/ssysinmqgflb"],["RSS — berichten",U("/profiles/blog/feed?xn_auth=no")],["RSS — activiteit",U("/activity/log/list?fmt=rss")]]]
+    ]}
+  };
+
+  var MEMBER_GROUPS = [
+    ["Leden", [["Ledenlijst",U("/profiles/members/")],["Leden zoeken",U("/profiles/members/advancedSearch")],["Veelgestelde vragen",U("/page/veelgestelde-vragen-en-goede-antwoorden")],["Ledenservice",U("/profiles/blog/list?tag=Ledenservice")],["Boîte à idées",U("/boite-a-idees")]]],
+    ["Mijn eigen", [["Mijn pagina",myPage],["Profiel bewerken",U("/profiles/settings/editProfileInfo")],["Mijn foto's",U("/photo/photo/listForContributor?screenName="+uid)],["Mijn berichten",U("/profiles/blog/list?user="+uid)],["Mijn vrienden",U("/profiles/friend/list?user="+uid)]]]
+  ];
+
+  var ADMIN_LINKS = [["Dashboard",U("/main/dashboard")],["Tags",U("/page/tags")],["Standaard teksten",U("/page/standard-berichten")],["Bestandsbeheer",U("/main/filemanager/list")],["Mijn pagina's",U("/page/page/listForContributor")]];
+  var PERKS = ["Uw eigen profielpagina","Chat met leden die online zijn","Ledenlijst & leden zoeken in uw regio","Gratis berichten en advertenties plaatsen"];
+
+  var CTAS = [
+    { href: U("/page/onroerend-goed"), t: "Vastgoed van leden", s: "Huizen aangeboden door landgenoten", fill: 1 },
+    { href: U("/page/nederlandse-verenigingen-in-frankrijk"), t: "NL-verenigingen", s: "Contactgegevens, activiteiten & bijeenkomsten, regionale spreiding" },
+    { href: U("/bosbranden"), t: "Nu actueel", s: "Overzicht bosbranden", live: 1 }
+  ];
+
+  var TOPICS = [
+    ["🚚 Vervoershub",U("/group/vervoerspagina")],["📖 Nedergids.nl","https://nedergids.nl/"],["🗣️ Franse taal leren",U("/page/frantastique-1")],
+    ["Café Claude","https://www.cafeclaude.fr/"],["Infofrankrijk","https://infofrankrijk.com/"],["Communities Abroad","https://www.communitiesabroad.com"],
+    ["Doneer",U("/page/fundraising-en-donaties"),1],["Bouw",U("/profiles/blog/list?tag=Bouw")],["Correspondentie",U("/profiles/blog/list?tag=Correspondentie")],
+    ["Cursussen",U("/profiles/blog/list?tag=Cursussen+en+Opleidingen")],["Dieren",U("/profiles/blog/list?tag=Dieren")],["Geldzaken",U("/profiles/blog/list?tag=Geldzaken")],
+    ["Gezondheid/Sport",U("/profiles/blog/list?tag=Gezondheid%2C+Sport+en+Spel")],["Hulpverlening",U("/page/hulpverlening-in-frankrijk"),1],["Huisregels",U("/page/huisregels"),1],
+    ["Kringloopwinkel","https://www.facebook.com/groups/kringloopfrankrijk/"],["Korte verhalen",U("/profiles/blog/list?tag=Korte+Verhalen")],["Leestips",U("/profiles/blog/list?promoted=1"),1],
+    ["Woordenlijst",U("/profiles/blog/list?tag=Lexicon")],["MKB",U("/profiles/blog/list?tag=Midden-+en+Kleinbedrijf"),1],["Migratie",U("/profiles/blog/list?tag=Migratie")],
+    ["Onderwijs",U("/profiles/blog/list?tag=Onderwijs")],["Ouderverzorging",U("/profiles/blog/list?tag=Ouderverzorging")],["Overheid en wet",U("/profiles/blog/list?tag=Overheid")],
+    ["Overige diensten",U("/profiles/blog/list?tag=Overige+Diensten")],["Rubrieken",U("/page/rubrieken")],["Telecommunicatie",U("/profiles/blog/list?tag=Telecommunicatie")],
+    ["Roerende goederen te koop",U("/profiles/blog/list?tag=Te+Koop+Aangeboden")],["Te koop gevraagd",U("/profiles/blog/list?tag=Te+Koop+Gevraagd")],["Vervoer",U("/profiles/blog/list?tag=Vervoer")],
+    ["Verenigingen",U("/profiles/blogs/overzicht-van-nederlandse-verenigingen-in-frankrijk")],["Werkaanbod",U("/profiles/blog/list?tag=Werk+Aangeboden")],["Werk algemeen",U("/profiles/blog/list?tag=Werk+Algemeen")],
+    ["Werk gevraagd",U("/profiles/blog/list?tag=Werk+Gevraagd")],["Woningbeheer",U("/profiles/blog/list?tag=Woningbeheer+en+Huishouding")],["Huizen aangeboden",U("/profiles/blog/list?tag=Woningen+Aangeboden")],
+    ["Wonen algemeen",U("/profiles/blog/list?tag=Woningen+Algemeen")],["Woningen gevraagd",U("/profiles/blog/list?tag=Woningen+Gevraagd")],["Word sponsor",U("/page/sponsorprogramma"),1]
+  ];
+
+  var DOOR_DEFS = [["lezen","Lezen","rubrieken"],["doen","Meedoen","plaatsen & steunen"],["vinden","Vinden","tools & hulp"],["mijn","Mijn NLFR","leden"],["nieuws","Nieuws","& feeds"]];
+
+  // ---- Build nav ----
+  var doorsEl = document.getElementById("doors");
+  var lock = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:.85"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+  var caret = '<svg class="caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  DOOR_DEFS.forEach(function(d){
+    var locked = (d[0] === "mijn" && !isMember);
+    var b = document.createElement("button");
+    b.className = "door" + (locked ? " locked" : "");
+    b.setAttribute("data-door", d[0]);
+    b.innerHTML = '<span class="t">' + d[1] + caret + (locked ? lock : '') + '</span><span class="s">' + d[2] + '</span>';
+    doorsEl.appendChild(b);
+  });
+
+  // ---- Build band ----
+  document.getElementById("bandleft").innerHTML =
+    link(U("/profiles/blog/new"),"Plaats bericht","light") +
+    link(U("/page/betaalpagina-berichten"),"Plaats advertentie","light") +
+    link(U("/diensten"),"Diensten","fill");
+
+  // ---- Admin button ----
+  var adminBtn = document.getElementById("adminbtn");
+  if (isAdmin) adminBtn.classList.add("show");
+
+  // ---- Drawer rendering ----
+  var drawer = document.getElementById("drawer");
+  function groupsHTML(groups, cols){
+    var h = '<div class="cols" style="grid-template-columns:repeat('+cols+',1fr)">';
+    groups.forEach(function(g){
+      h += '<div class="grp"><div class="h">'+g[0]+'</div><div class="lk">';
+      g[1].forEach(function(l){ h += link(l[1], l[0], l[2] ? "accent" : "item"); });
+      h += '</div></div>';
+    });
+    return h + '</div>';
+  }
+  function build(target){
+    if (DOORS[target]) { drawer.innerHTML = groupsHTML(DOORS[target].groups, DOORS[target].cols); return; }
+    if (target === "mijn") {
+      if (isMember) { drawer.innerHTML = groupsHTML(MEMBER_GROUPS, 2); return; }
+      var p = PERKS.map(function(x){ return '<div class="perk"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>'+x+'</div>'; }).join("");
+      drawer.innerHTML = '<div class="teaser"><h3>Word gratis lid — dan kan er meer</h3><p>Als lid heeft u opties die bezoekers niet zien:</p><div class="perks">'+p+'</div><div class="btns">'+
+        '<a class="btn-p" href="'+U("/main/authorization/signUp")+'" target="_parent">Word lid — gratis</a>'+
+        '<a class="btn-o" href="'+U("/main/authorization/signIn")+'" target="_parent">Meld je aan</a></div></div>';
+      return;
+    }
+    if (target === "admin") {
+      drawer.innerHTML = '<div class="adminlinks"><span class="h">Beheer</span>' + ADMIN_LINKS.map(function(l){ return link(l[1], l[0], ""); }).join("") + '</div>';
+      return;
+    }
+    if (target === "topics") {
+      var c = '<div class="ctas">' + CTAS.map(function(x){
+        var title = (x.live ? '<span class="dot"></span>' : '') + x.t;
+        return '<a class="cta '+(x.fill?"fill":"tint")+'" href="'+x.href+'" target="'+tgt(x.href)+'"'+(tgt(x.href)==="_blank"?' rel="noopener"':'')+'><span class="ct">'+title+'</span><span class="cs">'+x.s+'</span></a>';
+      }).join("") + '</div>';
+      c += '<div class="cols" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1px 18px">';
+      TOPICS.forEach(function(t){ c += link(t[1], t[0], t[2] ? "item emph" : "item"); });
+      c += '</div>';
+      drawer.innerHTML = c;
+      return;
+    }
+    drawer.innerHTML = "";
+  }
+
+  // ---- Open/close ----
+  var current = null;
+
+  // FIX 1: meet de werkelijke kaarthoogte (niet body.scrollHeight, want die is
+  // nooit kleiner dan het iframe-venster → oneindige groei-lus). Meld alleen
+  // bij een gewijzigde waarde.
+  var lastReported = 0;
+  function report(){
+    try {
+      if (window.parent && window.parent !== window) {
+        var card = document.querySelector(".card");
+        if (!card) return;
+        var h = Math.ceil(card.getBoundingClientRect().height) + 12; // + body-padding (2 × 6px)
+        if (h !== lastReported) {
+          lastReported = h;
+          window.parent.postMessage({ nlfrMenuHeight: h }, "*");
+        }
+      }
+    } catch(e){}
+  }
+
+  function closeAll(){
+    current = null;
+    drawer.classList.remove("open");
+    Array.prototype.forEach.call(document.querySelectorAll(".door"), function(b){ b.classList.remove("active"); });
+    document.getElementById("pullbtn").classList.remove("active");
+    adminBtn.classList.remove("active");
+  }
+  function open(target, el){
+    if (current === target) { closeAll(); report(); return; }
+    closeAll();
+    current = target;
+    build(target);
+    drawer.classList.add("open");
+    if (el) el.classList.add("active");
+    report();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".door"), function(b){
+    b.addEventListener("click", function(){ open(b.getAttribute("data-door"), b); });
+  });
+  document.getElementById("pullbtn").addEventListener("click", function(){ open("topics", this); });
+  adminBtn.addEventListener("click", function(){ open("admin", this); });
+  document.addEventListener("keydown", function(e){ if (e.key === "Escape") { closeAll(); report(); } });
+
+  // ---- Search: opent de AI-zoek app ----
+  var q = document.getElementById("q"), clr = document.getElementById("clear"), sbox = document.getElementById("searchbox");
+  function doSearch(){ var v = q.value.trim(); if (!v) return; var url = ZOEK_APP + encodeURIComponent(v); try { window.top.location.href = url; } catch(e) { window.open(url, "_blank", "noopener"); } }
+  document.getElementById("searchform").addEventListener("submit", function(e){ e.preventDefault(); doSearch(); });
+  q.addEventListener("input", function(){ clr.classList.toggle("show", q.value.length > 0); });
+  q.addEventListener("focus", function(){ sbox.classList.add("focus"); });
+  q.addEventListener("blur", function(){ sbox.classList.remove("focus"); });
+  clr.addEventListener("click", function(){ q.value = ""; clr.classList.remove("show"); q.focus(); });
+
+  // ---- Height sync ----
+  window.addEventListener("load", report);
+  window.addEventListener("resize", report);
+  report();
+})();
+</script>
+</body>
+</html>
