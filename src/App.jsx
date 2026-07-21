@@ -12,6 +12,11 @@ const IS_EMBED = (() => {
   }
 })();
 
+/* NING's eigen forumzoek. Google indexeert het NING-forum nauwelijks, dus we
+   bieden altijd een aanvullende link naar de interne zoekfunctie; de zoekterm
+   wordt er URL-encoded achter geplakt. */
+const NING_SEARCH_URL = "https://www.nederlanders.fr/main/search/search?q=";
+
 /* ---------- icons ---------- */
 const IconSearch = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -227,6 +232,30 @@ function BronCard({ src }) {
   );
 }
 
+/* ---------- forumzoek-fallback (altijd zichtbaar, elke uitkomst) ---------- */
+function NingSearchLink({ query }) {
+  const q = (query || "").trim();
+  if (!q) return null;
+  return (
+    <div className="ning-search-fallback" style={{ margin: "16px 0 0" }}>
+      <a
+        className="ning-search-btn"
+        href={NING_SEARCH_URL + encodeURIComponent(q)}
+        target="_top"
+        rel="noopener noreferrer"
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          fontWeight: 600, fontSize: 13.5, color: "#fff",
+          background: "#800000", padding: "10px 16px", borderRadius: 8,
+          textDecoration: "none",
+        }}
+      >
+        Alle forumresultaten voor '{q}' <IconArrow />
+      </a>
+    </div>
+  );
+}
+
 /* ---------- results ---------- */
 function Results({ query, rubriek, narrative, sources, threads, searchCount, cached, onReset }) {
   const hasNothing = sources.length === 0 && threads.length === 0;
@@ -256,6 +285,7 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
           <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer" style={{ color: "#800000", textDecoration: "underline" }}>
             Café Claude
           </a>.
+          <NingSearchLink query={query} />
         </div>
       ) : (
         <>
@@ -266,6 +296,8 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
               {sources.map((s, i) => <BronCard key={i} src={s} />)}
             </div>
           )}
+
+          <NingSearchLink query={query} />
 
           <div className="bron-disclaimer">
             <p className="disclaimer-fine">
@@ -387,7 +419,7 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
 }
 
 /* ---------- limit ---------- */
-function LimitCard({ subscriber, message, onReset }) {
+function LimitCard({ subscriber, message, onReset, query }) {
   return (
     <section className="shell">
       <div className="limit-card">
@@ -407,13 +439,14 @@ function LimitCard({ subscriber, message, onReset }) {
           </a>
           <button className="btn-ghost" onClick={onReset}>Nieuwe vraag</button>
         </div>
+        <NingSearchLink query={query} />
       </div>
     </section>
   );
 }
 
 /* ---------- error ---------- */
-function ErrorCard({ message, onReset }) {
+function ErrorCard({ message, onReset, query }) {
   return (
     <section className="shell">
       <div className="limit-card">
@@ -423,6 +456,7 @@ function ErrorCard({ message, onReset }) {
         <div className="limit-actions">
           <button className="btn-primary" onClick={onReset}>Opnieuw proberen</button>
         </div>
+        <NingSearchLink query={query} />
       </div>
     </section>
   );
@@ -633,6 +667,7 @@ export default function App() {
             subscriber={limitInfo.subscriber}
             message={limitInfo.message}
             onReset={onReset}
+            query={query}
           />
         </>
       )}
@@ -640,7 +675,7 @@ export default function App() {
       {state === "error" && (
         <>
           {!IS_EMBED && <Hero {...heroProps} />}
-          <ErrorCard message={errorMsg} onReset={onReset} />
+          <ErrorCard message={errorMsg} onReset={onReset} query={query} />
         </>
       )}
 
