@@ -1,33 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Mulish:wght@400;500;600;700&display=swap');
 /* ---------- tokens ---------- */
 :root {
-  --wine:       #6b1d1d;
-  --wine-deep: #4a1414;
-  --wine-soft: #8b3636;
-  --wine-04:   rgba(107, 29, 29, 0.04);
-  --wine-06:   rgba(107, 29, 29, 0.06);
-  --wine-10:   rgba(107, 29, 29, 0.10);
-  --wine-15:   rgba(107, 29, 29, 0.15);
-  --wine-25:   rgba(107, 29, 29, 0.25);
-
-  --paper:    #f8f4ee;
-  --paper-2:  #f3ede3;
-  --card:     #fdfaf5;
-  --ink:      #1f1815;
-  --ink-2:    #4a3f37;
-  --muted:    #8a7e74;
-  --muted-2:  #b3a89d;
-  --hairline: rgba(107, 29, 29, 0.10);
-  --hairline-strong: rgba(107, 29, 29, 0.18);
-
-  --display: 'Instrument Serif', 'Cormorant Garamond', Georgia, serif;
-  --sans:    'Mulish', 'Segoe UI', system-ui, sans-serif;
-
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 10px;
-
-  --shadow-sm: 0 1px 0 rgba(107,29,29,0.04), 0 1px 2px rgba(31,24,21,0.04);
-  --shadow-md: 0 1px 0 rgba(107,29,29,0.04), 0 6px 24px -8px rgba(31,24,21,0.10);
+  --wine:#800000; --wine-deep:#5c0000; --wine-soft:#9a3a3a;
+  --wine-04:rgba(128,0,0,.04); --wine-06:rgba(128,0,0,.06); --wine-10:rgba(128,0,0,.10); --wine-15:rgba(128,0,0,.15); --wine-25:rgba(128,0,0,.25);
+  --paper:#f6f2ef; --paper-2:#efe9e4; --card:#ffffff;
+  --ink:#2a2320; --ink-2:#5b524f; --muted:#8a7f7c; --muted-2:#b0a29d;
+  --hairline:rgba(128,0,0,.10); --hairline-strong:rgba(128,0,0,.18);
+  --display:'Poppins','Segoe UI',system-ui,sans-serif;
+  --sans:'Mulish','Segoe UI',system-ui,sans-serif;
+  --r-sm:8px; --r-md:12px; --r-lg:16px;
+  --shadow-sm:0 1px 2px rgba(128,0,0,.06);
+  --shadow-md:0 10px 30px -16px rgba(128,0,0,.35);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -942,3 +925,19 @@ button { font-family: inherit; cursor: pointer; }
   .examples-grid { grid-template-columns: 1fr; }
   .topbar-link.hide-mob { display: none; }
 }
+
+
+/* ===== NLFR huisstijl: Poppins + bordeaux (toegevoegd) ===== */
+.brand-mark,.title,.query-q,.sources-title,.cta-title,.limit-title,.searching-label{font-weight:700;}
+.brand-mark em,.title em,.query-q .quote,.searching-label,.source-num,.footer-marks span,.cta-icon{font-style:normal;}
+.title em,.query-q .quote{color:var(--wine);}
+.source-num{font-weight:700;}
+.footer-marks span{font-weight:600;}
+.title{font-size:46px;line-height:1.12;letter-spacing:-.02em;}
+@media (max-width:640px){.title{font-size:34px;}}
+.search-row{border-radius:14px;}
+.search-btn{text-transform:none;letter-spacing:0;font-size:14px;border-radius:9px;padding:0 22px;}
+.search-btn svg{width:15px;height:15px;}
+.bron-card{border-radius:var(--r-md);border-color:rgba(128,0,0,.12);}
+.bron-badge{border-radius:999px;}
+.chip,.chip-select{border-radius:999px;}
