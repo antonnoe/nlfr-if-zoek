@@ -52,11 +52,6 @@ const IconArrowLeft = () => (
     <path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path>
   </svg>
 );
-const IconExternal = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M7 17 17 7"></path><path d="M8 7h9v9"></path>
-  </svg>
-);
 
 const EXAMPLES = [
   "Carte vitale aanvragen als nieuwkomer",
@@ -235,16 +230,6 @@ function BronCard({ src }) {
     <div className={`bron-card ${src.type === 'if' ? 'is-if' : ''}`}>
       <span className={`bron-badge ${badgeClass}`}>{badgeLabel}</span>
       <a className="bron-titel" href={src.url} target="_blank" rel="noopener noreferrer">{src.titel}</a>
-      {(src.datumwaarschuwing || src.viaReactie) && (
-        <div className="bron-flags">
-          {src.datumwaarschuwing && (
-            <span className="flag flag-gedateerd">
-              Let op: mogelijk gedateerd{src.datumwaarschuwingTag ? ` (${src.datumwaarschuwingTag})` : ""}
-            </span>
-          )}
-          {src.viaReactie && <span className="flag flag-reactie">via reactie</span>}
-        </div>
-      )}
       {src.samenvatting && <div className="bron-samenvatting">{src.samenvatting}</div>}
       {(src.auteur || src.datum) && (
         <div className="bron-meta">
@@ -255,6 +240,22 @@ function BronCard({ src }) {
           )}
           {src.auteur && src.datum && " · "}
           {src.datum && <span>{src.datum}</span>}
+        </div>
+      )}
+      {/* Verrijking, compact onder auteur/datum: reactieaantal, "veel besproken",
+         via-reactie en de datumwaarschuwing (vervangt het losse netwerk-blok). */}
+      {((src.replyCount != null && src.replyCount > 0) || src.viaReactie || src.datumwaarschuwing) && (
+        <div className="bron-submeta">
+          {src.replyCount >= 5 && <span className="flag flag-besproken">Veel besproken</span>}
+          {src.replyCount != null && src.replyCount > 0 && (
+            <span className="submeta-count">{src.replyCount} reactie{src.replyCount !== 1 ? "s" : ""}</span>
+          )}
+          {src.viaReactie && <span className="flag flag-reactie">via reactie</span>}
+          {src.datumwaarschuwing && (
+            <span className="flag flag-gedateerd">
+              Let op: mogelijk gedateerd{src.datumwaarschuwingTag ? ` (${src.datumwaarschuwingTag})` : ""}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -311,9 +312,38 @@ function LedenPoort() {
   );
 }
 
+/* ---------- steunblok (alleen leden, onder de resultaten) ---------- */
+function Steunblok() {
+  return (
+    <div className="steunblok">
+      <p className="steunblok-text">
+        Deze AI-zoek is gratis. Waardeer je hem? Steun met een donatie of neem een Infofrankrijk-abonnement.
+      </p>
+      <div className="steunblok-actions">
+        <a
+          className="steunblok-btn"
+          href="https://www.nederlanders.fr/page/fundraising-en-donaties"
+          target="_top"
+          rel="noopener noreferrer"
+        >
+          Doneren
+        </a>
+        <a
+          className="steunblok-btn steunblok-btn-ghost"
+          href="https://infofrankrijk.com/abonnement/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Neem een abonnement
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- results ---------- */
-function Results({ query, rubriek, narrative, sources, threads, searchCount, cached, onReset }) {
-  const hasNothing = sources.length === 0 && threads.length === 0;
+function Results({ query, rubriek, narrative, sources, searchCount, cached, onReset }) {
+  const hasNothing = sources.length === 0;
   // Spaarstand: geen narrative → geen samenvatting, geen foutmelding.
   const narrativeText = narrative && narrative.trim() ? narrative.trim() : "";
 
@@ -340,7 +370,9 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
           <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer" style={{ color: "#800000", textDecoration: "underline" }}>
             Café Claude
           </a>.
-          <NingSearchLink query={query} />
+          <div style={{ margin: "16px 0 0" }}>
+            <NingSearchLink query={query} compact />
+          </div>
         </div>
       ) : (
         <>
@@ -356,7 +388,9 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
             </div>
           )}
 
-          <NingSearchLink query={query} />
+          <div style={{ margin: "16px 0 0" }}>
+            <NingSearchLink query={query} compact />
+          </div>
 
           <div className="bron-disclaimer">
             <p className="disclaimer-fine">
@@ -370,70 +404,9 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
         </>
       )}
 
-      {threads.length > 0 && (
-        <div className="sources">
-          <div className="sources-head">
-            <div className="sources-title">Gevonden in het netwerk</div>
-            <div className="sources-count">{threads.length} gevonden</div>
-          </div>
-          <div className="source-list">
-            {threads.map((t, i) => {
-              const tagClass = t.type === "if" ? "tag-if" : t.type === "leestip" ? "tag-leestip" : "tag-forum";
-              const tagLabel = t.type === "if" ? "Infofrankrijk" : t.type === "leestip" ? "Leestip" : "Forum NLFR";
-              const dimmed = t.isQuestion && (!t.replyCount || t.replyCount === 0);
-              return (
-                <a key={i} className="source" href={t.url} target="_blank" rel="noopener noreferrer"
-                   style={dimmed ? { opacity: 0.5 } : undefined}>
-                  <span className="source-num">{i + 1}</span>
-                  <div className="source-body">
-                    <div className="source-kicker">
-                      <span className={`tag ${tagClass}`}>{tagLabel}</span>
-                      {t.datumwaarschuwing && (
-                        <span className="flag flag-gedateerd">
-                          Let op: mogelijk gedateerd{t.datumwaarschuwingTag ? ` (${t.datumwaarschuwingTag})` : ""}
-                        </span>
-                      )}
-                      {t.viaReactie && <span className="flag flag-reactie">via reactie</span>}
-                    </div>
-                    <div className="source-title">
-                      {t.title}
-                      {t.replyCount >= 5 && (
-                        <span style={{
-                          display: 'inline-block', fontSize: 9, fontWeight: 700,
-                          color: '#800000', background: 'rgba(128,0,0,0.07)',
-                          padding: '2px 6px', borderRadius: 3, marginLeft: 6,
-                          verticalAlign: 'middle', textTransform: 'uppercase',
-                          letterSpacing: '0.03em',
-                        }}>Veel besproken</span>
-                      )}
-                    </div>
-                    <div className="source-meta" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px' }}
-                         onClick={e => e.preventDefault()}>
-                      {(t.authorDisplay || t.author) && (
-                        <a href={`https://www.nederlanders.fr/profile/${t.author || t.authorDisplay}`}
-                           target="_blank" rel="noopener noreferrer"
-                           style={{ color: '#888', textDecoration: 'none' }}
-                           onMouseEnter={e => e.target.style.color = '#800000'}
-                           onMouseLeave={e => e.target.style.color = '#888'}
-                           onClick={e => e.stopPropagation()}>
-                          {t.authorDisplay || t.author}
-                        </a>
-                      )}
-                      {(t.authorDisplay || t.author) && t.date && <span> · </span>}
-                      {t.date && <span>{t.date}</span>}
-                      {t.views != null && <span> · {t.views}× bekeken</span>}
-                      {t.replyCount != null && t.replyCount > 0 && (
-                        <span> · {t.replyCount} reactie{t.replyCount !== 1 ? 's' : ''}</span>
-                      )}
-                    </div>
-                  </div>
-                  <span className="source-arrow"><IconExternal /></span>
-                </a>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Steunblok: alleen voor ingelogde leden (lid=1). Niet-leden zien hierboven
+         al de gratis-lid-uitnodiging (ledenpoort), dus daar geen steunblok. */}
+      {IS_LID && <Steunblok />}
 
       <div className="forum-cta" style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -484,19 +457,23 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
 }
 
 /* ---------- limit ---------- */
-function LimitCard({ subscriber, message, onReset, query }) {
+function LimitCard({ subscriber, lid, message, onReset, query }) {
+  // IF-abonnee en ingelogd lid hebben beide 15/dag; bezoekers 6/dag.
+  const ruimeLimiet = subscriber || lid;
   return (
     <section className="shell">
       <div className="limit-card">
         <div className="limit-eyebrow">Dagelijkse limiet</div>
         <h2 className="limit-title">
-          {subscriber ? <>15 zoekopdrachten <em>gebruikt vandaag</em></> : <>6 gratis zoekopdrachten <em>op</em></>}
+          {ruimeLimiet ? <>15 zoekopdrachten <em>gebruikt vandaag</em></> : <>6 gratis zoekopdrachten <em>op</em></>}
         </h2>
         <p className="limit-text">{message}</p>
         <div className="limit-actions">
-          {!subscriber && (
-            <a className="btn-primary" href="https://infofrankrijk.com/abonnement/" target="_blank" rel="noopener noreferrer">
-              Word abonnee <IconArrow />
+          {/* Niet-leden: nodig uit om (gratis) lid te worden voor 15/dag. Leden en
+             abonnees hebben die ruimte al, dus geen aanmeld-CTA. */}
+          {!subscriber && !lid && (
+            <a className="btn-primary" href={SIGNUP_URL} target="_top" rel="noopener noreferrer">
+              Word gratis lid voor 15 per dag <IconArrow />
             </a>
           )}
           <a className={subscriber ? "btn-primary" : "btn-ghost"} href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
@@ -555,7 +532,6 @@ export default function App() {
   const [state, setState] = useState("idle"); // idle | searching | results | limit | error
   const [response, setResponse] = useState("");
   const [sources, setSources] = useState([]);
-  const [threads, setThreads] = useState([]);
   const [searchCount, setSearchCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [cached, setCached] = useState(false);
@@ -618,7 +594,6 @@ export default function App() {
     setState("searching");
     setResponse("");
     setSources([]);
-    setThreads([]);
     setSearchCount(0);
     setErrorMsg("");
     setCached(false);
@@ -628,13 +603,14 @@ export default function App() {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, token: token || undefined, rubriek: rubriek || undefined }),
+        body: JSON.stringify({ query: q, token: token || undefined, rubriek: rubriek || undefined, lid: IS_LID ? 1 : undefined }),
       });
       const data = await res.json().catch(() => ({}));
 
       if (res.status === 429) {
         setLimitInfo({
           subscriber: !!data.subscriber,
+          lid: !!data.lid,
           message: data.message || "Dagelijkse limiet bereikt.",
         });
         setIsSubscriber(!!data.subscriber);
@@ -649,7 +625,6 @@ export default function App() {
       setCached(!!data.cached);
       setResponse(data.narrative || "");
       setSources(Array.isArray(data.sources) ? data.sources : []);
-      setThreads(Array.isArray(data.threads) ? data.threads : []);
       setState("results");
     } catch (err) {
       setErrorMsg(err.message || "Er ging iets mis bij het zoeken.");
@@ -671,7 +646,6 @@ export default function App() {
     setQuery("");
     setResponse("");
     setSources([]);
-    setThreads([]);
     setCached(false);
     setLimitInfo(null);
     setErrorMsg("");
@@ -717,7 +691,6 @@ export default function App() {
             rubriek={rubriek}
             narrative={response}
             sources={sources}
-            threads={threads}
             searchCount={searchCount}
             cached={cached}
             onReset={onReset}
@@ -730,6 +703,7 @@ export default function App() {
           {!IS_EMBED && <Hero {...heroProps} />}
           <LimitCard
             subscriber={limitInfo.subscriber}
+            lid={limitInfo.lid}
             message={limitInfo.message}
             onReset={onReset}
             query={query}

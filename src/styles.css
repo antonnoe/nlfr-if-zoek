@@ -1034,3 +1034,74 @@ button { font-family: inherit; cursor: pointer; }
 /* Compacte fallback-knop in de limit-state: één regel, kleine pijl. */
 .ning-search-compact { white-space: nowrap; }
 .ning-search-compact svg { width: 13px; height: 13px; }
+
+/* ===== Afronding: verrijkte bronkaart-submeta + steunblok ===== */
+
+/* Compacte verrijkingsregel onder auteur/datum: reactieaantal, veel-besproken,
+   via-reactie en datumwaarschuwing bij elkaar (vervangt het netwerk-onderblok). */
+.bron-submeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.submeta-count {
+  font-size: 11px;
+  color: var(--muted, #8a7f7c);
+}
+.flag-besproken {
+  color: var(--wine, #800000);
+  background: rgba(128, 0, 0, 0.07);
+  border: 1px solid rgba(128, 0, 0, 0.14);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+/* Steunblok — alleen voor leden, sober, onder de resultaten. */
+.steunblok {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 24px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--hairline-strong, rgba(128, 0, 0, 0.18));
+  border-radius: var(--r-md, 12px);
+  background: var(--wine-04, rgba(128, 0, 0, 0.04));
+}
+.steunblok-text {
+  margin: 0;
+  flex: 1 1 240px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2, #5b524f);
+}
+.steunblok-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.steunblok-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: #fff;
+  background: var(--wine, #800000);
+  padding: 8px 14px;
+  border-radius: var(--r-sm, 8px);
+  text-decoration: none;
+  border: 1px solid var(--wine, #800000);
+  transition: background 120ms ease, color 120ms ease;
+}
+.steunblok-btn:hover { background: var(--wine-deep, #5c0000); border-color: var(--wine-deep, #5c0000); }
+.steunblok-btn-ghost {
+  color: var(--wine, #800000);
+  background: transparent;
+}
+.steunblok-btn-ghost:hover { background: var(--wine, #800000); color: #fff; }

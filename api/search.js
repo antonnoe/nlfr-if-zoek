@@ -95,6 +95,7 @@ function verifyToken(token, secret) {
 // Gedeelde Redis instantie + rate limiters
 let sharedRedis = null;
 let subscriberLimit = null;
+let lidLimit = null;
 let anonLimit = null;
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
   sharedRedis = Redis.fromEnv();
@@ -102,6 +103,13 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
     redis: sharedRedis,
     limiter: Ratelimit.fixedWindow(15, '1 d'),
     prefix: 'nlfr-if-zoek:sub',
+    analytics: false,
+  });
+  // Ingelogde NING-leden (lid=1): 15 zoekopdrachten per dag, op IP.
+  lidLimit = new Ratelimit({
+    redis: sharedRedis,
+    limiter: Ratelimit.fixedWindow(15, '1 d'),
+    prefix: 'nlfr-if-zoek:lid',
     analytics: false,
   });
   anonLimit = new Ratelimit({
@@ -294,19 +302,14 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'API key niet geconfigureerd' });
 
-  const { query, token, rubriek, debug } = req.body || {};
+  const { query, token, rubriek, lid } = req.body || {};
   if (!query || typeof query !== 'string' || query.trim().length === 0) {
     return res.status(400).json({ error: 'Geen zoekvraag opgegeven' });
   }
   const q = query.trim();
   const rubriekTag = rubriek && RUBRIEKEN[rubriek] ? RUBRIEKEN[rubriek] : null;
-
-  // TIJDELIJK — debug-doorkijk (body-veld debug:true). Voegt een `debug`-object
-  // aan de response toe met pool-samenstelling en tussenaantallen; omzeilt de
-  // cache zodat er vers gemeten wordt. Geen enkele gedragswijziging zonder dit
-  // veld. Verwijderen na de kwaliteitsdip-diagnose.
-  const debugMode = debug === true;
-  const debugInfo = debugMode ? {} : null;
+  // Ingelogd NING-lid? De NING-pagina zet lid=1 op basis van ning.CurrentProfile.
+  const isLid = lid === true || lid === 1 || lid === '1';
 
   // Token validatie
   const ssoSecret = process.env.INFOFRANKRIJK_SSO_SECRET;
@@ -315,7 +318,7 @@ export default async function handler(req, res) {
 
   // Genormaliseerde cache-sleutel (v2): varianten van dezelfde vraag delen één entry.
   const cacheKey = `nlfr-if-zoek:cache:v2:${normalizeQuery(q)}${rubriekTag ? ':' + rubriekTag : ''}`;
-  if (sharedRedis && !debugMode) {
+  if (sharedRedis) {
     try {
       const cached = await sharedRedis.get(cacheKey);
       if (cached) {
@@ -337,16 +340,19 @@ export default async function handler(req, res) {
     try {
       const ip = (req.headers['x-forwarded-for'] || '')
         .split(',')[0].trim() || req.socket?.remoteAddress || 'onbekend';
-      const limiter = isSubscriber ? subscriberLimit : anonLimit;
-      const identifier = isSubscriber ? verified.email : ip;
+      // IF-abonnee (token) en ingelogd lid krijgen beide 15/dag; bezoekers 6/dag.
+      let limiter, identifier;
+      if (isSubscriber) { limiter = subscriberLimit; identifier = verified.email; }
+      else if (isLid) { limiter = lidLimit; identifier = ip; }
+      else { limiter = anonLimit; identifier = ip; }
       const { success } = await limiter.limit(identifier);
       if (!success) {
-        return res.status(429).json({
-          subscriber: isSubscriber,
-          message: isSubscriber
-            ? 'Je dagelijkse limiet van 15 zoekopdrachten is bereikt. Voor meer kun je terecht bij Café Claude.'
-            : 'Je 6 gratis zoekopdrachten voor vandaag zijn op. Word abonnee voor 15 per dag, of stel je vraag aan Café Claude.',
-        });
+        const message = isSubscriber
+          ? 'Je dagelijkse limiet van 15 zoekopdrachten is bereikt. Voor meer kun je terecht bij Café Claude.'
+          : isLid
+            ? 'Je 15 zoekopdrachten voor vandaag zijn op. Morgen kun je weer verder — of doorzoek zelf het forum.'
+            : 'Je 6 gratis zoekopdrachten voor vandaag zijn op. Word gratis lid van Nederlanders.fr voor 15 per dag.';
+        return res.status(429).json({ subscriber: isSubscriber, lid: isLid, message });
       }
     } catch (e) {
       console.error('Rate limit error:', e); // bij fout: niet blokkeren
@@ -372,37 +378,35 @@ export default async function handler(req, res) {
     // gecombineerde pool < 4), draai ÉÉNMAAL een tweede ronde met een
     // vereenvoudigde query (procedure-/vraagwoorden eraf, 2-4 kerntermen). Merge
     // en dedupliceer met ronde 1. Max één ronde per zoekopdracht (kostenbeheer).
-    const verbreding = { gedraaid: false, vereenvoudigdeQuery: null, extraHits: 0 };
     const poolDun = serperHits.length < 3 || (serperHits.length + ningResults.length) < 4;
     if (poolDun) {
-      const simple = simplifyQuery(q);
+      let simple = simplifyQuery(q);
+      // Vangnet: als de vereenvoudiging de query niet wijzigt (geen procedure-/
+      // vraagwoorden om te strippen), val terug op de drie langste inhoudswoorden
+      // van de query. Zolang dat wél een andere query oplevert (guard tegen een
+      // identieke tweede call).
+      if (!simple || normalizeQuery(simple) === normalizeQuery(q)) {
+        const contentWords = q.split(/\s+/).filter(w => w && !STOPWORDS.has(w.toLowerCase()));
+        const langste = new Set([...contentWords].sort((a, b) => b.length - a.length).slice(0, 3));
+        const vangnet = contentWords.filter(w => langste.has(w)).join(' ').trim();
+        simple = (vangnet && normalizeQuery(vangnet) !== normalizeQuery(q)) ? vangnet : null;
+      }
       if (simple && normalizeQuery(simple) !== normalizeQuery(q)) {
-        verbreding.gedraaid = true;
-        verbreding.vereenvoudigdeQuery = simple;
         const [s2, n2] = await Promise.allSettled([
           serperSearch(simple, rubriekTag),
           ningSearch(simple, { timeoutMs: 3000, max: 20 }),
         ]);
         const s2hits = s2.status === 'fulfilled' ? s2.value : [];
         const n2hits = n2.status === 'fulfilled' ? n2.value : [];
-        let extra = 0;
         const seenS = new Set(serperHits.map(h => h.link));
         for (const h of s2hits) {
-          if (h.link && !seenS.has(h.link)) { seenS.add(h.link); serperHits.push(h); extra++; }
+          if (h.link && !seenS.has(h.link)) { seenS.add(h.link); serperHits.push(h); }
         }
         const seenN = new Set(ningResults.map(r => r.url));
         for (const r of n2hits) {
-          if (r.url && !seenN.has(r.url)) { seenN.add(r.url); ningResults.push(r); extra++; }
+          if (r.url && !seenN.has(r.url)) { seenN.add(r.url); ningResults.push(r); }
         }
-        verbreding.extraHits = extra;
       }
-    }
-
-    if (debugMode) {
-      const serperIF = serperHits.filter(h => (h.link || '').includes('infofrankrijk.com')).length;
-      debugInfo.serperHits = { totaal: serperHits.length, if: serperIF, forum: serperHits.length - serperIF };
-      debugInfo.ningHitsVoorCap = ningResults.length;
-      debugInfo.verbreding = verbreding;
     }
 
     // Balans: goud/promoted (best-effort, gecacht) vast ophalen — nodig voor de
@@ -422,7 +426,6 @@ export default async function handler(req, res) {
     }));
     const ningTop = scoreForumSources(ningForumAll, { gold, promoted, replyByUrl: new Map(), curYear, queryYears })
       .slice(0, NING_MAX);
-    if (debugMode) debugInfo.ningHitsNaCap = ningTop.length;
 
     // NING-treffers → dezelfde hit-vorm; samenvoegen en dedupliceren op URL
     // (Serper eerst, dus Serper wint bij een exacte URL-botsing).
@@ -435,14 +438,6 @@ export default async function handler(req, res) {
     }
     // Bronzoekopdrachten: 2 (Serper: IF + NLFR) + 1 als NING iets opleverde.
     const searchCount = 2 + (ningResults.length > 0 ? 1 : 0);
-
-    if (debugMode) {
-      const herkomst = (u) => (u || '').includes('infofrankrijk.com')
-        ? 'IF' : ((u || '').includes('nederlanders.fr') ? 'forum' : 'overig');
-      debugInfo.kandidatenpool = hits.map(h => ({ titel: h.title, herkomst: herkomst(h.link) }));
-      debugInfo.poolTotaal = hits.length;
-      debugInfo.haikuBronnen = 0; // wordt hieronder gezet als Haiku draait
-    }
 
     let fullText = '';
     let truncated = false;
@@ -519,22 +514,18 @@ export default async function handler(req, res) {
     // doorgeeft, zodat de tier-scoring post/reactie en screennaam kent.
     const ningByUrl = new Map(ningResults.map(r => [r.url, r]));
 
-    // BRON-blokken parsen + valideren + NING-metadata koppelen. Elke Haiku-bron
-    // die de nafiltering laat vallen wordt mét reden vastgelegd (debug-inzicht).
+    // BRON-blokken parsen + valideren + NING-metadata koppelen. Alleen bronnen
+    // die aantoonbaar kapot zijn (geen titel, onparseerbaar, vreemd domein, of een
+    // mobiele NING-duplicaat) vallen weg — nooit op een formatteer-slip.
     const haikuSources = parseSources(fullText);
-    if (debugMode) debugInfo.haikuBronnen = haikuSources.length; // vóór filtering hierna
-    const afgevallen = [];
     const parsed = [];
     for (const s of haikuSources) {
       const titel = (s.titel || '').trim();
-      if (!titel) { afgevallen.push({ titel: s.url || '(leeg)', reden: 'geen titel' }); continue; }
+      if (!titel) continue;
       const chk = checkUrl(s.url);
-      if (!chk.ok) { afgevallen.push({ titel, reden: chk.reden }); continue; }
+      if (!chk.ok) continue;
       // Mobiele duplicaten alléén bij NING wegfilteren — nooit een IF-artikel.
-      if (/nederlanders\.fr\/m\//i.test(chk.url)) {
-        afgevallen.push({ titel, reden: 'mobiele duplicaat-URL (/m/)' });
-        continue;
-      }
+      if (/nederlanders\.fr\/m\//i.test(chk.url)) continue;
       const meta = ningByUrl.get(chk.url);
       parsed.push(meta
         ? { ...s, url: chk.url, kind: meta.kind, auteurId: meta.auteurId, datum: s.datum || meta.datum, auteur: s.auteur || meta.auteur }
@@ -553,18 +544,11 @@ export default async function handler(req, res) {
     // Dedupe op de verrijkte draad-URL: reactie + post naar dezelfde draad → één
     // treffer (post wint; viaReactie blijft als signaal). Daarna pas tier-scoren.
     const dedupedForum = dedupeByThread(forumSources, replyByUrl);
-    const keptForumUrls = new Set(dedupedForum.map(s => s.url));
-    for (const s of forumSources) {
-      if (!keptForumUrls.has(s.url)) afgevallen.push({ titel: s.titel, reden: 'samengevoegd met dezelfde draad (dedupe)' });
-    }
     const scoredForum = scoreForumSources(dedupedForum, { gold, promoted, replyByUrl, curYear, queryYears });
 
     // IF eerst, dan forumbronnen op tier-score; begrenzen op 8. Interne _score weg.
     const combined = [...ifSources, ...scoredForum];
-    for (const s of combined.slice(8)) afgevallen.push({ titel: s.titel, reden: 'buiten de top 8 (cap)' });
     const sources = combined.slice(0, 8).map(({ _score, ...rest }) => rest);
-
-    if (debugMode) debugInfo.afgevallen = afgevallen;
 
     // Vaste, correcte intro (terminologie-neutraal) — niet door het model bepaald.
     const narrative = sources.length > 0
@@ -609,7 +593,6 @@ export default async function handler(req, res) {
       ...responseData,
       cached: false,
       subscriber: isSubscriber,
-      ...(debugMode ? { debug: debugInfo } : {}), // TIJDELIJK
     });
   } catch (err) {
     console.error('Search handler error:', err);
