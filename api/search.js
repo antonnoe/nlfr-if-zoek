@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { ningFetch } from './_ning-agent.js';
+import { ningSearch } from './_ning-zoek.js';
 
 const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten (titel, snippet, URL) van twee bronnen aangeleverd en presenteert de relevante daarvan. Je zoekt niet zelf en je beantwoordt de vraag niet — je selecteert en vat de gevonden bronnen samen.
 
@@ -379,9 +380,31 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) Bronnen ophalen via Serper (directe SERP-call, geen agentic loop)
-    const hits = await serperSearch(q, rubriekTag);
-    const searchCount = 2; // twee bronzoekopdrachten (IF + NLFR)
+    // 1) Bronnen ophalen. Serper (IF + NLFR via Google) blijft de basis; NING's
+    //    eigen forumzoek komt daar ADDITIEF bij (Google indexeert het NING-forum
+    //    dun). NING is best-effort: eigen 3s-timeout, elke fout = 0 treffers, en
+    //    het mag de bestaande flow nooit blokkeren.
+    const [serperSettled, ningSettled] = await Promise.allSettled([
+      serperSearch(q, rubriekTag),
+      ningSearch(q, { timeoutMs: 3000, max: 20 }),
+    ]);
+    // Serper-gedrag ongewijzigd: een Serper-fout blijft een harde fout (500),
+    // precies zoals voorheen `await serperSearch(...)`.
+    if (serperSettled.status === 'rejected') throw serperSettled.reason;
+    const serperHits = serperSettled.value;
+    const ningResults = ningSettled.status === 'fulfilled' ? ningSettled.value : [];
+
+    // NING-treffers → dezelfde hit-vorm; samenvoegen en dedupliceren op URL
+    // (Serper eerst, dus Serper wint bij een exacte URL-botsing).
+    const seenLinks = new Set(serperHits.map(h => h.link));
+    const hits = [...serperHits];
+    for (const r of ningResults) {
+      if (!r.url || seenLinks.has(r.url) || r.url.includes('/m/')) continue;
+      seenLinks.add(r.url);
+      hits.push({ title: r.titel, link: r.url, snippet: r.snippet, date: r.datum, author: r.auteur });
+    }
+    // Bronzoekopdrachten: 2 (Serper: IF + NLFR) + 1 als NING iets opleverde.
+    const searchCount = 2 + (ningResults.length > 0 ? 1 : 0);
 
     let fullText = '';
     let truncated = false;
@@ -389,7 +412,7 @@ export default async function handler(req, res) {
     // 2) Alleen samenvatten als er treffers zijn — anders geen (dure) Haiku-call
     if (hits.length > 0) {
       const hitsText = hits
-        .map((h, i) => `[${i + 1}] ${h.title}\nURL: ${h.link}${h.date ? `\nDatum: ${h.date}` : ''}\nSnippet: ${h.snippet}`)
+        .map((h, i) => `[${i + 1}] ${h.title}\nURL: ${h.link}${h.date ? `\nDatum: ${h.date}` : ''}${h.author ? `\nAuteur: ${h.author}` : ''}\nSnippet: ${h.snippet}`)
         .join('\n\n');
 
       const userMessage = `Hieronder de zoekresultaten voor: "${q}"${rubriekTag ? `\n(rubriekfilter: "${rubriek}")` : ''}.\n\nPresenteer de relevante bronnen als BRON-blokken volgens je instructies (IF-bronnen eerst, dan forumbijdragen). Gebruik UITSLUITEND de onderstaande URLs — verzin niets, en laat auteur/datum leeg als die er niet bij staan.\n\n${hitsText}`;
