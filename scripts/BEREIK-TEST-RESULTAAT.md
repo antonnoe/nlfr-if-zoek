@@ -1,6 +1,6 @@
 # NLFR bereik-test — resultaat
 
-Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 07:02:19 UTC.
+Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 07:30:27 UTC.
 
 Doel: kan een Actions-runner nederlanders.fr server-side ophalen?
 Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 300 tekens.
@@ -55,4 +55,18 @@ Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 3
 ~~~html
 <!DOCTYPE html> <html lang="nl" xmlns:og="http://ogp.me/ns#">     <head data-layout-view="default"> <script>     window.dataLayer = window.dataLayer || [];         </script> <!-- Google Tag Manager --> <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm
 ~~~
+
+---
+
+## Certketen aanvullen (fix voor curl error 60)
+
+- Certificaten die de server aanbiedt: **2**
+- Issuer van het leaf-certificaat: `C = US, O = Let's Encrypt, CN = YR2`
+- AIA CA-Issuers-URL: `http://yr2.i.lencr.org/`
+- Intermediate opgehaald: **ja (DER)**
+- Intermediate: `C = US, O = Let's Encrypt, CN = YR2`
+- Root gevonden in systeem-truststore: **nee**
+- Bundle geschreven naar `certs/ning-ca-bundle.pem` (1 certificaten)
+- Verificatie `curl --cacert certs/ning-ca-bundle.pem https://www.nederlanders.fr/` (zonder `-k`): HTTP **`200`**
+  - ✅ De aangevulde keten werkt: NING is nu bereikbaar met normale TLS-verificatie.
 
