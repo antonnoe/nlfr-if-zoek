@@ -956,3 +956,81 @@ button { font-family: inherit; cursor: pointer; }
 .bron-card{border-radius:var(--r-md);border-color:rgba(128,0,0,.12);}
 .bron-badge{border-radius:999px;}
 .chip,.chip-select{border-radius:999px;}
+
+/* ===== Taak B: uitlegtekst, ledenpoort, labels, compacte fallback-knop ===== */
+
+/* Vaste uitlegtekst boven de resultaten — klein en rustig. */
+.search-explain {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted, #7a716e);
+  background: rgba(128, 0, 0, 0.035);
+  border: 1px solid rgba(128, 0, 0, 0.10);
+  border-radius: var(--r-sm, 8px);
+  padding: 9px 12px;
+  margin: 10px 0 14px;
+}
+
+/* Ledenpoort op de plek van de samenvatting — sober. */
+.ledenpoort {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(128, 0, 0, 0.18);
+  border-radius: var(--r-sm, 8px);
+  background: rgba(128, 0, 0, 0.03);
+}
+.ledenpoort-text {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-2, #3a3330);
+}
+.ledenpoort-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  color: #fff;
+  background: var(--wine, #800000);
+  padding: 8px 14px;
+  border-radius: var(--r-sm, 8px);
+  text-decoration: none;
+}
+.ledenpoort-btn:hover { filter: brightness(1.09); }
+
+/* Kleine, sobere labels op bronkaarten en threads. */
+.bron-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 2px;
+}
+.flag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 1px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.01em;
+}
+.flag-gedateerd {
+  color: #8a5a00;
+  background: rgba(180, 120, 0, 0.10);
+  border: 1px solid rgba(180, 120, 0, 0.22);
+}
+.flag-reactie {
+  color: #5b524f;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+}
+.source-kicker { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* Compacte fallback-knop in de limit-state: één regel, kleine pijl. */
+.ning-search-compact { white-space: nowrap; }
+.ning-search-compact svg { width: 13px; height: 13px; }

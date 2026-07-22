@@ -1,0 +1,60 @@
+<!-- Referentiekopie — plakken als NING-bestand op de nieuwe zoek-pagina -->
+<!--
+  NLFR AI-ZOEK — pagina-inhoud voor de nieuwe NING-pagina.
+
+  LET OP: pas hieronder [PAGINA-URL] / de slug aan de echte pagina aan als je
+  een andere slug kiest. Aangenomen pagina-URL: https://www.nederlanders.fr/ai-zoek
+  Deze codeblok komt in de body van die NING-pagina (de NING-pagina levert zelf
+  de site-header en het menu; hier alleen het zoek-iframe + script).
+
+  Het script:
+   (a) geeft ?q= uit de pagina-URL door aan de app;
+   (b) leest ning.CurrentProfile en voegt &lid=1 toe bij een ingelogd lid
+       (zachte ledenpoort: leden zien de AI-samenvatting);
+   (c) bevat de nlfrZoekHeight-listener met alleen-bij-wijziging-bescherming.
+  GEEN ResizeObserver en geen ander hoogtemechanisme — de app meldt zijn hoogte.
+-->
+<style>
+  #zoek {
+    display: block;
+    width: 100%;
+    border: 0;
+    height: 600px;              /* starthoogte; groeit mee via nlfrZoekHeight */
+    background: #f6f2ef;
+  }
+</style>
+
+<iframe id="zoek" src="about:blank" scrolling="no" title="AI-zoekresultaten" name="zoek"></iframe>
+
+<script>
+(function () {
+  var zoek = document.getElementById("zoek");
+
+  // (a) zoekterm uit de pagina-URL
+  var q = "";
+  try { q = new URLSearchParams(window.location.search).get("q") || ""; } catch (e) {}
+
+  // (b) ingelogd lid? ning.CurrentProfile staat op de NING-pagina zelf.
+  var cp = null;
+  try {
+    cp = (window.ning && window.ning.CurrentProfile) ||
+         (window.parent && window.parent.ning && window.parent.ning.CurrentProfile) || null;
+  } catch (e) { cp = null; }
+  var lid = !!(cp && cp.id);
+
+  var src = "https://nlfr-if-zoek.vercel.app/?embed=1";
+  if (lid) src += "&lid=1";
+  if (q) src += "&q=" + encodeURIComponent(q);
+  zoek.src = src;
+
+  // (c) hoogte meegroeien — alleen bij een gewijzigde waarde.
+  var lastZoekH = 0;
+  window.addEventListener("message", function (e) {
+    if (!e || !e.data) return;
+    if (e.data.nlfrZoekHeight && e.data.nlfrZoekHeight !== lastZoekH) {
+      lastZoekH = e.data.nlfrZoekHeight;
+      zoek.style.height = (lastZoekH + 8) + "px";
+    }
+  });
+})();
+</script>

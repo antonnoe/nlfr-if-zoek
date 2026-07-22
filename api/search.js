@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { ningSearch } from './_ning-zoek.js';
-import { getGoldList, getPromoted, enrichReplies, scoreForumSources, isRestrictedTopic } from './_ning-tiers.js';
+import { getGoldList, getPromoted, enrichReplies, dedupeByThread, scoreForumSources, isRestrictedTopic } from './_ning-tiers.js';
 
 const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten (titel, snippet, URL) van twee bronnen aangeleverd en presenteert de relevante daarvan. Je zoekt niet zelf en je beantwoordt de vraag niet — je selecteert en vat de gevonden bronnen samen.
 
@@ -432,8 +432,11 @@ export default async function handler(req, res) {
       getPromoted(),
       enrichReplies(forumSources.map(s => s.url)),
     ]);
+    // Dedupe op de verrijkte draad-URL: reactie + post naar dezelfde draad → één
+    // treffer (post wint; viaReactie blijft als signaal). Daarna pas tier-scoren.
+    const dedupedForum = dedupeByThread(forumSources, replyByUrl);
     const curYear = new Date().getFullYear();
-    const scoredForum = scoreForumSources(forumSources, { gold, promoted, replyByUrl, curYear, queryYears });
+    const scoredForum = scoreForumSources(dedupedForum, { gold, promoted, replyByUrl, curYear, queryYears });
 
     // IF eerst, dan forumbronnen op tier-score; begrenzen op 8. Interne _score weg.
     const sources = [...ifSources, ...scoredForum]

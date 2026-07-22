@@ -12,10 +12,29 @@ const IS_EMBED = (() => {
   }
 })();
 
+/* Ledenpoort (zachte poort): met ?lid=1 tonen we de AI-samenvatting; zonder
+   komt op die plek een uitnodiging om (gratis) lid te worden. De NING-pagina
+   zet lid=1 op basis van ning.CurrentProfile. */
+const IS_LID = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("lid") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 /* NING's eigen forumzoek. Google indexeert het NING-forum nauwelijks, dus we
    bieden altijd een aanvullende link naar de interne zoekfunctie; de zoekterm
    wordt er URL-encoded achter geplakt. */
 const NING_SEARCH_URL = "https://www.nederlanders.fr/main/search/search?q=";
+
+/* Vaste, sobere uitlegtekst boven elke resultatenweergave (embed én normaal). */
+const EXPLAIN_TEXT =
+  "Deze AI-zoek doorzoekt het forum van Nederlanders.fr en de kennisbank van " +
+  "Infofrankrijk.com en vat de best passende bronnen samen. Controleer bij geld- " +
+  "en overheidszaken altijd de datum van de bron.";
+
+const SIGNUP_URL = "https://www.nederlanders.fr/main/authorization/signUp";
 
 /* ---------- icons ---------- */
 const IconSearch = () => (
@@ -216,6 +235,16 @@ function BronCard({ src }) {
     <div className={`bron-card ${src.type === 'if' ? 'is-if' : ''}`}>
       <span className={`bron-badge ${badgeClass}`}>{badgeLabel}</span>
       <a className="bron-titel" href={src.url} target="_blank" rel="noopener noreferrer">{src.titel}</a>
+      {(src.datumwaarschuwing || src.viaReactie) && (
+        <div className="bron-flags">
+          {src.datumwaarschuwing && (
+            <span className="flag flag-gedateerd">
+              Let op: mogelijk gedateerd{src.datumwaarschuwingTag ? ` (${src.datumwaarschuwingTag})` : ""}
+            </span>
+          )}
+          {src.viaReactie && <span className="flag flag-reactie">via reactie</span>}
+        </div>
+      )}
       {src.samenvatting && <div className="bron-samenvatting">{src.samenvatting}</div>}
       {(src.auteur || src.datum) && (
         <div className="bron-meta">
@@ -233,14 +262,26 @@ function BronCard({ src }) {
 }
 
 /* ---------- forumzoek-fallback (altijd zichtbaar, elke uitkomst) ---------- */
-function NingSearchLink({ query }) {
+function NingSearchLink({ query, compact }) {
   const q = (query || "").trim();
   if (!q) return null;
+  const href = NING_SEARCH_URL + encodeURIComponent(q);
+
+  // Compacte variant (o.a. in de limit-state): zelfde stijl als de knoppen
+  // ernaast — normale padding, pijl als klein teken, op één regel.
+  if (compact) {
+    return (
+      <a className="btn-ghost ning-search-compact" href={href} target="_top" rel="noopener noreferrer">
+        Alle forumresultaten <IconArrow />
+      </a>
+    );
+  }
+
   return (
     <div className="ning-search-fallback" style={{ margin: "16px 0 0" }}>
       <a
         className="ning-search-btn"
-        href={NING_SEARCH_URL + encodeURIComponent(q)}
+        href={href}
         target="_top"
         rel="noopener noreferrer"
         style={{
@@ -256,14 +297,25 @@ function NingSearchLink({ query }) {
   );
 }
 
+/* ---------- ledenpoort (zachte poort, op de plek van de samenvatting) ---------- */
+function LedenPoort() {
+  return (
+    <div className="ledenpoort">
+      <p className="ledenpoort-text">
+        De AI-samenvatting is een voordeel voor leden van Nederlanders.fr — lidmaatschap is gratis.
+      </p>
+      <a className="ledenpoort-btn" href={SIGNUP_URL} target="_top" rel="noopener noreferrer">
+        Word gratis lid
+      </a>
+    </div>
+  );
+}
+
 /* ---------- results ---------- */
 function Results({ query, rubriek, narrative, sources, threads, searchCount, cached, onReset }) {
   const hasNothing = sources.length === 0 && threads.length === 0;
-  const introText = narrative && narrative.trim()
-    ? narrative.trim()
-    : (sources.length > 0
-        ? `Over "${query}" vonden we het volgende in het netwerk:`
-        : '');
+  // Spaarstand: geen narrative → geen samenvatting, geen foutmelding.
+  const narrativeText = narrative && narrative.trim() ? narrative.trim() : "";
 
   return (
     <section className="results shell">
@@ -278,6 +330,9 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
         </div>
       </div>
 
+      {/* Vaste, sobere uitlegtekst boven elke resultatenweergave. */}
+      <p className="search-explain">{EXPLAIN_TEXT}</p>
+
       {hasNothing ? (
         <div className="bron-empty">
           We hebben geen dossiers, artikelen of forumbijdragen gevonden over dit onderwerp.
@@ -289,7 +344,11 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
         </div>
       ) : (
         <>
-          {introText && <p className="result-intro">{introText}</p>}
+          {/* Ledenpoort: samenvatting alleen voor leden (lid=1); anders uitnodiging.
+             Spaarstand: lid maar geen narrative → toon niets (geen foutmelding). */}
+          {IS_LID
+            ? (narrativeText && <p className="result-intro">{narrativeText}</p>)
+            : <LedenPoort />}
 
           {sources.length > 0 && (
             <div className="bron-list">
@@ -329,6 +388,12 @@ function Results({ query, rubriek, narrative, sources, threads, searchCount, cac
                   <div className="source-body">
                     <div className="source-kicker">
                       <span className={`tag ${tagClass}`}>{tagLabel}</span>
+                      {t.datumwaarschuwing && (
+                        <span className="flag flag-gedateerd">
+                          Let op: mogelijk gedateerd{t.datumwaarschuwingTag ? ` (${t.datumwaarschuwingTag})` : ""}
+                        </span>
+                      )}
+                      {t.viaReactie && <span className="flag flag-reactie">via reactie</span>}
                     </div>
                     <div className="source-title">
                       {t.title}
@@ -438,8 +503,8 @@ function LimitCard({ subscriber, message, onReset, query }) {
             ☕ Café Claude
           </a>
           <button className="btn-ghost" onClick={onReset}>Nieuwe vraag</button>
+          <NingSearchLink query={query} compact />
         </div>
-        <NingSearchLink query={query} />
       </div>
     </section>
   );

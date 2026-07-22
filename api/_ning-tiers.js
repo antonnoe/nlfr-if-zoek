@@ -165,7 +165,7 @@ export async function enrichReplies(urls, cap = 8) {
           tags.push(dec);
         }
 
-        map.set(url, { replyCount, views, tags });
+        map.set(url, { replyCount, views, tags, finalUrl: r.finalUrl || url });
       } catch { /* stil falen */ }
     })
   );
@@ -190,6 +190,44 @@ const RESTRICTED_RE = new RegExp(
 export function isRestrictedTopic(q) {
   const norm = (q || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   return RESTRICTED_RE.test(norm);
+}
+
+/**
+ * Dedupe op de VERRIJKTE draad-URL: bronnen die (na redirect) naar dezelfde
+ * draad wijzen — bv. een reactie-permalink en de post zelf — worden samengevoegd
+ * tot één treffer. Post-vorm wint; het viaReactie-signaal blijft behouden. De
+ * verrijking (reacties/tags) wordt gemerged (max reacties, unie van tags).
+ */
+export function dedupeByThread(forumSources, replyByUrl) {
+  const canon = (s) => {
+    const enr = replyByUrl.get(s.url);
+    const base = (enr && enr.finalUrl) ? enr.finalUrl : s.url;
+    return base.split('#')[0].replace(/\/+$/, '');
+  };
+  const groups = new Map();
+  for (const s of forumSources) {
+    const key = canon(s);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+  }
+  const out = [];
+  for (const group of groups.values()) {
+    const rep = group.find(g => g.kind !== 'comment') || group[0]; // post-vorm wint
+    const viaReactie = group.some(g => g.kind === 'comment' || g.viaReactie);
+    // Verrijking mergen naar de representatieve URL.
+    const enrRep = replyByUrl.get(rep.url) || {};
+    let maxReply = enrRep.replyCount || 0;
+    const tagSet = new Set(enrRep.tags || []);
+    for (const g of group) {
+      const e = replyByUrl.get(g.url);
+      if (!e) continue;
+      if ((e.replyCount || 0) > maxReply) maxReply = e.replyCount || 0;
+      for (const t of e.tags || []) tagSet.add(t);
+    }
+    replyByUrl.set(rep.url, { ...enrRep, replyCount: maxReply, tags: [...tagSet] });
+    out.push({ ...rep, viaReactieMerged: viaReactie });
+  }
+  return out;
 }
 
 /**
@@ -253,11 +291,12 @@ export function scoreForumSources(forumSources, ctx) {
     const out = {
       ...s,
       tier,
-      viaReactie: isComment,
+      viaReactie: isComment || !!s.viaReactieMerged,
       replyCount: enr.replyCount,
       views: enr.views,
       _score: score,
     };
+    delete out.viaReactieMerged;
     if (tags.length) out.tags = tags;
     if (datumwaarschuwing) {
       out.datumwaarschuwing = true;
