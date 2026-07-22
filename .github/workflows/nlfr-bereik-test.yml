@@ -44,15 +44,19 @@ jobs:
           # Argumenten: url | markerbeschrijving | grep-patroon-1 | grep-patroon-2 (optioneel)
           check() {
             local url="$1" mdesc="$2" p1="$3" p2="$4"
-            local body="$TMP/body.html"
-            local out code size markers first
+            local body="$TMP/body.html" errf="$TMP/err.txt"
+            local out code size markers first rc curlerr
 
-            out="$(curl -sS -A "$UA" --max-time 15 -o "$body" -w '%{http_code} %{size_download}' "$url" || true)"
+            rc=0
+            out="$(curl -sS -A "$UA" --max-time 15 -o "$body" -w '%{http_code} %{size_download}' "$url" 2>"$errf")" || rc=$?
             code="${out%% *}"
             size="${out##* }"
             [ -z "$code" ] && code="000"
             [ -z "$size" ] && size="0"
             [ -f "$body" ] || : > "$body"
+            # curl-foutregel (bv. TLS-verificatie faalt = proxy-MITM zonder vertrouwde CA,
+            # niet per se een NING-blok). Zo staat de oorzaak in het artefact zelf.
+            curlerr="$(tr '\n\r\t' '   ' < "$errf" | sed 's/  */ /g' | head -c 200)"
 
             markers="nee"
             if grep -qi -e "$p1" "$body" 2>/dev/null; then
@@ -68,6 +72,8 @@ jobs:
               echo
               echo "- HTTP-statuscode: \`$code\`"
               echo "- Response-grootte: \`$size\` bytes"
+              echo "- curl-exitcode: \`$rc\`"
+              [ -n "$curlerr" ] && echo "- curl-foutmelding: \`$curlerr\`"
               echo "- Markers ($mdesc): **$markers**"
               echo "- Eerste 300 tekens:"
               echo
@@ -77,7 +83,7 @@ jobs:
               echo
             } >> "$OUT"
 
-            echo "[$code] size=$size markers=$markers  $url"
+            echo "[$code] rc=$rc size=$size markers=$markers  $url"
           }
 
           check "https://www.nederlanders.fr/main/search/search?q=septic+tank" \
