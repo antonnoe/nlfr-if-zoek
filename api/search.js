@@ -33,6 +33,7 @@ INHOUDELIJKE REGELS:
 - auteur: alleen invullen als die duidelijk uit het resultaat blijkt; anders LAAT HET VELD LEEG (niets tussen de strepen). Verzin nooit een auteur en gebruik nooit een streepje of "onbekend" als opvulling.
 - datum: alleen invullen als die uit het resultaat blijkt; anders LEEG laten.
 - Sorteer: IF-bronnen eerst, daarna forumbijdragen.
+- IF-VERTEGENWOORDIGING (belangrijk): Infofrankrijk is de KENNISBRON, het forum is ERVARING. Neem ALTIJD alle relevante Infofrankrijk-artikelen op wanneer die tussen de resultaten staan. Reserveer daar eerst ruimte voor en vul daarna aan met de beste forumbijdragen. Geef NOOIT een selectie met uitsluitend forumbijdragen als er relevante IF-artikelen tussen de resultaten zitten.
 - Maximaal 8 bronnen. Geef alleen wat echt relevant is — als er niets relevants is, geef helemaal niets terug (geen tekst).`;
 
 // Rubriek-tags (komen overeen met NLFR tag-URLs)
@@ -325,11 +326,29 @@ export default async function handler(req, res) {
     const serperHits = serperSettled.value;
     const ningResults = ningSettled.status === 'fulfilled' ? ningSettled.value : [];
 
+    // Balans: goud/promoted (best-effort, gecacht) vast ophalen — nodig voor de
+    // NING-voorsortering hieronder én straks voor de definitieve tier-scoring.
+    const [gold, promoted] = await Promise.all([getGoldList(), getPromoted()]);
+    const curYear = new Date().getFullYear();
+    const queryYears = isRestrictedTopic(q) ? 1 : 5;
+
+    // Begrens de NING-kandidaten op de ~10 beste vóór de Haiku-stap
+    // (tier-voorsortering met goud/promoted + recency; reacties komen pas ná
+    // Haiku). Zo overspoelen forumtreffers de selectiepool niet en houden
+    // relevante IF-artikelen effectief ruimte.
+    const NING_MAX = 10;
+    const ningForumAll = ningResults.map(r => ({
+      type: 'forum', titel: r.titel, url: r.url, snippet: r.snippet,
+      auteur: r.auteur, auteurId: r.auteurId, datum: r.datum, kind: r.kind,
+    }));
+    const ningTop = scoreForumSources(ningForumAll, { gold, promoted, replyByUrl: new Map(), curYear, queryYears })
+      .slice(0, NING_MAX);
+
     // NING-treffers → dezelfde hit-vorm; samenvoegen en dedupliceren op URL
     // (Serper eerst, dus Serper wint bij een exacte URL-botsing).
     const seenLinks = new Set(serperHits.map(h => h.link));
     const hits = [...serperHits];
-    for (const r of ningResults) {
+    for (const r of ningTop) {
       if (!r.url || seenLinks.has(r.url) || r.url.includes('/m/')) continue;
       seenLinks.add(r.url);
       hits.push({ title: r.titel, link: r.url, snippet: r.snippet, date: r.datum, author: r.auteur });
@@ -415,27 +434,18 @@ export default async function handler(req, res) {
         };
       });
 
-    // Inclusief, nooit exclusief: GEEN enkele forumbron valt weg op ouderdom of
-    // tier. Ouderdomsdemping is houdbaarheid-gestuurd per bron (uit de tags in
-    // de verrijking). De query-heuristiek is ALLEEN een vangnet voor bronnen
-    // zonder tags: geld-/regel-/procedure-vraag → korte houdbaarheid (1), anders
-    // de default (5 jaar).
-    const queryYears = isRestrictedTopic(q) ? 1 : 5;
-
     // IF-artikelen staan BUITEN de tiers en blijven eerst (bestaande volgorde).
+    // Inclusief, nooit exclusief: geen forumbron valt weg op ouderdom/tier; de
+    // ouderdomsdemping is houdbaarheid-gestuurd (queryYears is het vangnet voor
+    // bronnen zonder tags — hierboven al bepaald).
     const ifSources = parsed.filter(s => s.type === 'if');
     const forumSources = parsed.filter(s => s.type !== 'if');
 
-    // Tier-inputs (best-effort, gecacht) + reactie-/tag-verrijking — parallel.
-    const [gold, promoted, replyByUrl] = await Promise.all([
-      getGoldList(),
-      getPromoted(),
-      enrichReplies(forumSources.map(s => s.url)),
-    ]);
+    // Reactie-/tag-verrijking (best-effort). Goud/promoted zijn hierboven al opgehaald.
+    const replyByUrl = await enrichReplies(forumSources.map(s => s.url));
     // Dedupe op de verrijkte draad-URL: reactie + post naar dezelfde draad → één
     // treffer (post wint; viaReactie blijft als signaal). Daarna pas tier-scoren.
     const dedupedForum = dedupeByThread(forumSources, replyByUrl);
-    const curYear = new Date().getFullYear();
     const scoredForum = scoreForumSources(dedupedForum, { gold, promoted, replyByUrl, curYear, queryYears });
 
     // IF eerst, dan forumbronnen op tier-score; begrenzen op 8. Interne _score weg.
