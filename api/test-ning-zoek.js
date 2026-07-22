@@ -22,9 +22,14 @@
  * niet mee-gedeployed → ENOENT). Bron van waarheid blijft
  * certs/ning-ca-bundle.pem; .github/workflows/nlfr-bereik-test.yml houdt dat
  * bestand actueel. Werk bij een keten-wijziging beide bij.
+ *
+ * We BREIDEN de CA-set UIT (tls.rootCertificates + deze twee certs) i.p.v. te
+ * vervangen: NING kan aan Node een andere keten serveren (RSA/andere root) dan
+ * aan curl (ECDSA/YR2), dus we moeten beide vertrouwensankers behouden.
  */
 
 import https from 'node:https';
+import tls from 'node:tls';
 
 const BASE = 'https://www.nederlanders.fr';
 const SEARCH = BASE + '/main/search/search';
@@ -231,10 +236,18 @@ M71DMi+y1+TRSJVClEMwvA4yL++7q9XZx5r5wBRWB4kQTKH5qyoZnDw7iiuh1lID
 yDFx8r7i9vIJU5HS3moZLkYWAOilMaV9N56A9Bgb6dNcHkvg3NoaYA==
 -----END CERTIFICATE-----
 `;
+
+// De twee inline certificaten los, zodat we ze bij tls.rootCertificates kunnen
+// voegen (uitbreiden, niet vervangen).
+const NING_CA_CERTS =
+  NING_CA.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) || [];
+// Systeem-roots + onze inline certs. Zo blijft elke keten die NING mogelijk
+// serveert (RSA naar een standaardroot, óf ECDSA/YR2) verifieerbaar.
+const CA_SET = [...tls.rootCertificates, ...NING_CA_CERTS];
 const caStatus = {
   loaded: true,
   source: 'inline',
-  count: (NING_CA.match(/BEGIN CERTIFICATE/g) || []).length,
+  count: NING_CA_CERTS.length,
 };
 
 // --------------------------- fetch met timeout ---------------------------
@@ -262,7 +275,7 @@ function fetchText(url, timeoutMs = 5000, maxRedirects = 5) {
           'Accept-Language': 'nl,nl-NL;q=0.9,en;q=0.6',
         },
       };
-      if (NING_CA) opts.ca = NING_CA;
+      opts.ca = CA_SET; // systeem-roots + inline certs (uitbreiden, niet vervangen)
 
       const req = https.request(opts, (res) => {
         const status = res.statusCode || 0;
@@ -293,6 +306,62 @@ function fetchText(url, timeoutMs = 5000, maxRedirects = 5) {
       req.end();
     };
     doReq(url, maxRedirects);
+  });
+}
+
+// --------------------------- keten-diagnose ---------------------------
+
+// Best-effort: open een aparte TLS-verbinding (verificatie UIT, alleen om te
+// kijken) en rapporteer de keten die de server werkelijk aanbiedt — subject +
+// issuer + sleuteltype per certificaat. Zo zien we zwart-op-wit welke keten
+// NING aan Vercel/Node serveert.
+function probeChain(hostname, port = 443, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const fmtDN = (o) => (o ? Object.entries(o).map(([k, v]) => `${k}=${v}`).join(', ') : '');
+    const keyType = (c) => {
+      if (c.nistCurve || c.asn1Curve) return `EC ${c.nistCurve || c.asn1Curve}`;
+      if (c.bits) return `RSA ${c.bits}`;
+      return undefined;
+    };
+    try {
+      const socket = tls.connect(
+        { host: hostname, port, servername: hostname, rejectUnauthorized: false, ALPNProtocols: ['http/1.1'] },
+        () => {
+          try {
+            const chain = [];
+            const seen = new Set();
+            let cert = socket.getPeerCertificate(true);
+            while (cert && cert.subject && cert.fingerprint256 && !seen.has(cert.fingerprint256)) {
+              seen.add(cert.fingerprint256);
+              chain.push({
+                subject: fmtDN(cert.subject),
+                issuer: fmtDN(cert.issuer),
+                keyType: keyType(cert),
+                valid_to: cert.valid_to,
+              });
+              if (!cert.issuerCertificate || cert.issuerCertificate === cert) break;
+              cert = cert.issuerCertificate;
+            }
+            done({
+              authorizedByDefault: socket.authorized,
+              authorizationError: socket.authorizationError ? String(socket.authorizationError) : null,
+              certsPresented: chain.length,
+              chain,
+            });
+          } catch (e) {
+            done({ error: e && e.message ? e.message : String(e) });
+          } finally {
+            socket.end();
+          }
+        }
+      );
+      socket.setTimeout(timeoutMs, () => { socket.destroy(); done({ error: `Timeout (>${timeoutMs}ms)` }); });
+      socket.on('error', (e) => done({ error: e && e.message ? e.message : String(e), code: e && e.code }));
+    } catch (e) {
+      done({ error: e && e.message ? e.message : String(e) });
+    }
   });
 }
 
@@ -385,6 +454,7 @@ export default async function handler(req, res) {
       const aborted = e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
       report.search = {
         error: aborted ? 'Timeout (>5s)' : (e && e.message ? e.message : String(e)),
+        code: e && e.code ? e.code : undefined,
         stap: 'fetch-search',
       };
     }
@@ -406,8 +476,16 @@ export default async function handler(req, res) {
       const aborted = e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
       report.feed = {
         error: aborted ? 'Timeout (>5s)' : (e && e.message ? e.message : String(e)),
+        code: e && e.code ? e.code : undefined,
         stap: 'fetch-feed',
       };
+    }
+
+    // --- Keten-diagnose: welke keten serveert NING werkelijk aan Node? ---
+    try {
+      report.chainInfo = await probeChain('www.nederlanders.fr', 443, 5000);
+    } catch (e) {
+      report.chainInfo = { error: e && e.message ? e.message : String(e) };
     }
 
     return res.status(200).json(report);
