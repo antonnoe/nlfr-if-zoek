@@ -259,12 +259,19 @@ export default async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'API key niet geconfigureerd' });
 
-  const { query, token, rubriek } = req.body || {};
+  const { query, token, rubriek, debug } = req.body || {};
   if (!query || typeof query !== 'string' || query.trim().length === 0) {
     return res.status(400).json({ error: 'Geen zoekvraag opgegeven' });
   }
   const q = query.trim();
   const rubriekTag = rubriek && RUBRIEKEN[rubriek] ? RUBRIEKEN[rubriek] : null;
+
+  // TIJDELIJK — debug-doorkijk (body-veld debug:true). Voegt een `debug`-object
+  // aan de response toe met pool-samenstelling en tussenaantallen; omzeilt de
+  // cache zodat er vers gemeten wordt. Geen enkele gedragswijziging zonder dit
+  // veld. Verwijderen na de kwaliteitsdip-diagnose.
+  const debugMode = debug === true;
+  const debugInfo = debugMode ? {} : null;
 
   // Token validatie
   const ssoSecret = process.env.INFOFRANKRIJK_SSO_SECRET;
@@ -273,7 +280,7 @@ export default async function handler(req, res) {
 
   // Genormaliseerde cache-sleutel (v2): varianten van dezelfde vraag delen één entry.
   const cacheKey = `nlfr-if-zoek:cache:v2:${normalizeQuery(q)}${rubriekTag ? ':' + rubriekTag : ''}`;
-  if (sharedRedis) {
+  if (sharedRedis && !debugMode) {
     try {
       const cached = await sharedRedis.get(cacheKey);
       if (cached) {
@@ -326,6 +333,12 @@ export default async function handler(req, res) {
     const serperHits = serperSettled.value;
     const ningResults = ningSettled.status === 'fulfilled' ? ningSettled.value : [];
 
+    if (debugMode) {
+      const serperIF = serperHits.filter(h => (h.link || '').includes('infofrankrijk.com')).length;
+      debugInfo.serperHits = { totaal: serperHits.length, if: serperIF, forum: serperHits.length - serperIF };
+      debugInfo.ningHitsVoorCap = ningResults.length;
+    }
+
     // Balans: goud/promoted (best-effort, gecacht) vast ophalen — nodig voor de
     // NING-voorsortering hieronder én straks voor de definitieve tier-scoring.
     const [gold, promoted] = await Promise.all([getGoldList(), getPromoted()]);
@@ -343,6 +356,7 @@ export default async function handler(req, res) {
     }));
     const ningTop = scoreForumSources(ningForumAll, { gold, promoted, replyByUrl: new Map(), curYear, queryYears })
       .slice(0, NING_MAX);
+    if (debugMode) debugInfo.ningHitsNaCap = ningTop.length;
 
     // NING-treffers → dezelfde hit-vorm; samenvoegen en dedupliceren op URL
     // (Serper eerst, dus Serper wint bij een exacte URL-botsing).
@@ -355,6 +369,14 @@ export default async function handler(req, res) {
     }
     // Bronzoekopdrachten: 2 (Serper: IF + NLFR) + 1 als NING iets opleverde.
     const searchCount = 2 + (ningResults.length > 0 ? 1 : 0);
+
+    if (debugMode) {
+      const herkomst = (u) => (u || '').includes('infofrankrijk.com')
+        ? 'IF' : ((u || '').includes('nederlanders.fr') ? 'forum' : 'overig');
+      debugInfo.kandidatenpool = hits.map(h => ({ titel: h.title, herkomst: herkomst(h.link) }));
+      debugInfo.poolTotaal = hits.length;
+      debugInfo.haikuBronnen = 0; // wordt hieronder gezet als Haiku draait
+    }
 
     let fullText = '';
     let truncated = false;
@@ -420,7 +442,9 @@ export default async function handler(req, res) {
     const ningByUrl = new Map(ningResults.map(r => [r.url, r]));
 
     // BRON-blokken parsen + valideren + NING-metadata koppelen.
-    let parsed = parseSources(fullText)
+    const haikuSources = parseSources(fullText);
+    if (debugMode) debugInfo.haikuBronnen = haikuSources.length; // vóór filtering hierna
+    let parsed = haikuSources
       .filter(s => s.titel && s.url && validUrl(s.url) && !s.url.includes('/m/'))
       .map(s => {
         const meta = ningByUrl.get(s.url);
@@ -496,6 +520,7 @@ export default async function handler(req, res) {
       ...responseData,
       cached: false,
       subscriber: isSubscriber,
+      ...(debugMode ? { debug: debugInfo } : {}), // TIJDELIJK
     });
   } catch (err) {
     console.error('Search handler error:', err);
