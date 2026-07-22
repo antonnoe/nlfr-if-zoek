@@ -11,7 +11,15 @@
  * De parser hieronder is een compacte port van scripts/verkenning-ning-zoek.mjs,
  * inline gehouden zodat deze functie zelfstandig werkt (geen CLI-side-effects,
  * geen cross-map-bundling).
+ *
+ * NING serveert een incomplete TLS-keten (curl error 60). We lezen daarom de
+ * door de workflow samengestelde CA-bundle (intermediate + root) in en geven die
+ * mee aan de fetch via een https-agent met ca-optie, zodat de verbinding mét
+ * normale TLS-verificatie (zonder -k) slaagt.
  */
+
+import https from 'node:https';
+import { readFileSync } from 'node:fs';
 
 const BASE = 'https://www.nederlanders.fr';
 const SEARCH = BASE + '/main/search/search';
@@ -148,26 +156,84 @@ function parseResults(html, max = 10) {
   return { via, items: clean };
 }
 
+// --------------------------- CA-bundle laden ---------------------------
+
+// Intermediate + root uit certs/ning-ca-bundle.pem (door de workflow gecommit).
+// new URL(..., import.meta.url) laat Vercel's file-tracing het bestand meebundelen.
+let NING_CA = null;
+const caStatus = { loaded: false, source: null, error: null };
+for (const rel of ['../certs/ning-ca-bundle.pem', './certs/ning-ca-bundle.pem']) {
+  try {
+    const loc = new URL(rel, import.meta.url);
+    const pem = readFileSync(loc, 'utf8');
+    if (pem && pem.includes('BEGIN CERTIFICATE')) {
+      NING_CA = pem;
+      caStatus.loaded = true;
+      caStatus.source = rel;
+      break;
+    }
+  } catch (e) {
+    caStatus.error = e && e.message ? e.message : String(e);
+  }
+}
+
 // --------------------------- fetch met timeout ---------------------------
 
-async function fetchText(url, timeoutMs = 5000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': BROWSER_UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'nl,nl-NL;q=0.9,en;q=0.6',
-      },
-    });
-    const body = await res.text();
-    return { status: res.status, ok: res.ok, length: body.length, body, finalUrl: res.url || url };
-  } finally {
-    clearTimeout(timer);
-  }
+// Node https-agent met ca-optie i.p.v. global fetch, zodat we de aangevulde
+// keten kunnen meegeven. Volgt redirects; geeft dezelfde vorm terug als voorheen.
+function fetchText(url, timeoutMs = 5000, maxRedirects = 5) {
+  return new Promise((resolve, reject) => {
+    const doReq = (targetUrl, redirectsLeft) => {
+      let u;
+      try {
+        u = new URL(targetUrl);
+      } catch (e) {
+        return reject(e);
+      }
+      const opts = {
+        method: 'GET',
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        servername: u.hostname,
+        headers: {
+          'User-Agent': BROWSER_UA,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'nl,nl-NL;q=0.9,en;q=0.6',
+        },
+      };
+      if (NING_CA) opts.ca = NING_CA;
+
+      const req = https.request(opts, (res) => {
+        const status = res.statusCode || 0;
+        const loc = res.headers.location;
+        if (status >= 300 && status < 400 && loc && redirectsLeft > 0) {
+          res.resume(); // body legen
+          let next;
+          try {
+            next = new URL(loc, targetUrl).toString();
+          } catch (e) {
+            return reject(e);
+          }
+          return doReq(next, redirectsLeft - 1);
+        }
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (d) => { data += d; });
+        res.on('end', () => resolve({
+          status,
+          ok: status >= 200 && status < 300,
+          length: data.length,
+          body: data,
+          finalUrl: targetUrl,
+        }));
+      });
+      req.setTimeout(timeoutMs, () => { req.destroy(new Error(`Timeout (>${timeoutMs}ms)`)); });
+      req.on('error', reject);
+      req.end();
+    };
+    doReq(url, maxRedirects);
+  });
 }
 
 // --------------------------- handler ---------------------------
@@ -202,6 +268,7 @@ export default async function handler(req, res) {
       note: 'TIJDELIJK verkennings-endpoint — verwijderen na route B-besluit.',
       query: q,
       page: pageNum || 1,
+      caBundle: { loaded: caStatus.loaded, source: caStatus.source, error: caStatus.error },
     };
 
     // --- Stap 1: HTML-zoekpagina ophalen ---

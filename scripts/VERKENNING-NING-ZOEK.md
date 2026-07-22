@@ -1,11 +1,66 @@
 # Verkenning — NING-forumzoek als bronleverancier voor `/api/search`
 
 **Status:** verkennend, géén productiewijziging. `api/search.js` en `src/` zijn niet aangeraakt.
-**Datum:** 2026-07-21
+**Datum:** 2026-07-21 (bijgewerkt 2026-07-22 met de bereiktest-resultaten)
+
+> **⚠️ Belangrijk — lees eerst de herziene diagnose hieronder.** De oorspronkelijke
+> TL;DR ("kon niet geverifieerd worden / mogelijk bot-blok") is door de GitHub-Actions
+> bereiktest **achterhaald**: NING is wél bereikbaar; het probleem was een incomplete
+> TLS-keten, geen IP- of bot-blok.
 
 ---
 
-## TL;DR
+## Herziene diagnose (2026-07-22) — bereiktest via GitHub Actions
+
+De bereiktest (`.github/workflows/nlfr-bereik-test.yml` → `scripts/BEREIK-TEST-RESULTAAT.md`)
+haalde drie NING-URL's op vanaf een `ubuntu-latest`-runner. Resultaat:
+
+| URL | Normale TLS | Insecure `curl -k` diagnose | Marker |
+|---|---|---|---|
+| `/main/search/search?q=septic+tank` | `000` — curl **error 60** | **HTTP 200, 48.616 bytes** | ✅ "toegevoegd door" |
+| `/profiles/blog/feed?xn_auth=no` | `000` — curl error 60 | **HTTP 200, 174.203 bytes** | ✅ `<feed>` (Atom) |
+| `/profiles/blog/list?promoted=1` | `000` — curl error 60 | **HTTP 200, 103.941 bytes** | ✅ `/profiles/blogs/` |
+
+**Conclusie — geen IP-/bot-blok, maar een incomplete certificaatketen:**
+
+- Curl-fout was **error 60**: `SSL certificate problem: unable to get local issuer
+  certificate`. NING's server stuurt de **intermediate niet mee**, dus curl/Node kan de
+  keten leaf → intermediate → root niet sluiten.
+- De insecure `-k`-probe (verificatie uit) leverde meteen **HTTP 200 met echte NING-HTML**
+  op — inclusief de parse-marker "toegevoegd door" op de zoekpagina. Dus:
+  - NING is **wél bereikbaar** vanaf een datacenter-runner (en dus vanaf Vercel);
+  - NING **blokkeert de runner niet** met 403/CAPTCHA (browser-UA volstaat);
+  - de enige horde is **TLS-ketenaanvulling** — een opgelost probleem.
+- **Fix (in deze verkenning geïmplementeerd):** de workflow dumpt de keten met
+  `openssl s_client -showcerts`, haalt het ontbrekende intermediate via het **AIA-veld**
+  (CA Issuers-URL) van het leaf-certificaat, zoekt de bijbehorende root in de
+  systeem-truststore, en commit `certs/ning-ca-bundle.pem` (intermediate + root, **publieke
+  certificaten**). De workflow verifieert daarna dat
+  `curl --cacert certs/ning-ca-bundle.pem https://www.nederlanders.fr/` **HTTP 200 geeft
+  zónder `-k`**. Het test-endpoint `api/test-ning-zoek.js` gebruikt diezelfde bundle via een
+  https-agent (`ca`-optie).
+
+### Atom-feed-vondst (machineleesbaar!)
+
+`https://www.nederlanders.fr/profiles/blog/feed?xn_auth=no` levert **174 KB Atom-XML**
+(`<feed xmlns="http://www.w3.org/2005/Atom">`, titel "Alle berichten - Nederlanders.fr").
+Dit is de gestructureerde bron waar sectie 2 hieronder naar zocht en niet kon testen:
+
+- **Robuuster dan HTML-parsen** — geen fragiele class-namen; Atom-entries hebben `<title>`,
+  `<link>`, `<content>`, `<author>`, `<published>`/`<updated>` (herkenbare datum → het
+  5-jaar-tijdfilter kan direct werken).
+- **Kanttekening:** dit is de *algemene* berichtenfeed, **niet per zoekterm gefilterd**. Als
+  bronleverancier voor een specifieke query is de **zoekpagina** (HTML) nodig; de feed is
+  vooral nuttig voor "recente/promoted bijdragen" of als aanvullende recency-bron. Of NING
+  een zoek-gefilterde feed kent, is nog te bepalen (de zoek-URL leek puur HTML).
+
+**Netto:** route B (NING als bronleverancier, server-side vanaf Vercel/Actions) is
+**haalbaar**. Benodigd: de CA-bundle meegeven bij de fetch (gedaan) en de HTML-parser op de
+echte zoekpagina ijken. De onderstaande oorspronkelijke secties blijven als achtergrond staan.
+
+---
+
+## TL;DR (oorspronkelijk, 2026-07-21 — zie herziene diagnose hierboven)
 
 - **Kon niet live geverifieerd worden vanuit deze ontwikkel-sandbox.** Twee onafhankelijke
   ophaalwegen worden geblokkeerd:
