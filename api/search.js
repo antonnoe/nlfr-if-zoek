@@ -131,6 +131,41 @@ function normalizeQuery(q) {
     .trim();
 }
 
+// Vereenvoudig een zoekvraag voor de verbredingsronde: strip procedure-/
+// vraagwoorden en beperk tot de 2-4 inhoudelijke kerntermen. Verbindingswoordjes
+// (de/du/la…) blijven staan zodat meerwoordige begrippen als "carte de séjour"
+// heel blijven. Bewaart de oorspronkelijke schrijfwijze van de kerntermen.
+const BROADEN_STRIP = new Set([
+  'stappenplan', 'stappen', 'procedure', 'procedures', 'documenten', 'document',
+  'papieren', 'aanvragen', 'regelen', 'welke', 'hoe', 'wat', 'waar', 'wanneer',
+  'waarom', 'wie', 'eerste', 'nieuwe', 'nieuw', 'checklist', 'uitleg', 'info',
+  'informatie', 'tips', 'gids', 'handleiding', 'nodig', 'benodigde',
+  'benodigdheden', 'verplicht', 'verplichte', 'moet', 'kan', 'hulp', 'help',
+  'overzicht', 'alles',
+]);
+const BROADEN_CONNECTORS = new Set([
+  'de', 'du', 'des', 'le', 'la', 'les', 'l', 'd', 'en', 'et', 'a', 'au', 'aux',
+  'van', 'het', 'een', 'voor', 'met', 'op', 'in', 'the',
+]);
+export function simplifyQuery(q) {
+  const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const tokens = (q || '').split(/\s+/).filter(Boolean);
+  const kept = [];
+  let kern = 0;
+  for (const t of tokens) {
+    const n = norm(t);
+    if (!n || BROADEN_STRIP.has(n)) continue;      // procedure-/vraagwoord weg
+    if (BROADEN_CONNECTORS.has(n)) { kept.push(t); continue; }
+    if (kern >= 4) continue;                        // max 4 kerntermen
+    kern++;
+    kept.push(t);
+  }
+  // Losse verbindingswoordjes aan de randen wegknippen.
+  while (kept.length && BROADEN_CONNECTORS.has(norm(kept[kept.length - 1]))) kept.pop();
+  while (kept.length && BROADEN_CONNECTORS.has(norm(kept[0]))) kept.shift();
+  return kept.join(' ').trim();
+}
+
 // Directe Serper-zoek (Google SERP API) — vervangt de agentic web_search-loop.
 // Twee parallelle calls (IF + NLFR) zodat beide bronnen gegarandeerd vertegenwoordigd
 // zijn ("twee bronnen"); een enkele OR-query scheeft vaak naar één domein.
@@ -333,10 +368,41 @@ export default async function handler(req, res) {
     const serperHits = serperSettled.value;
     const ningResults = ningSettled.status === 'fulfilled' ? ningSettled.value : [];
 
+    // Verbredingsronde: als de pool na ronde 1 dun is (Serper-totaal < 3 óf de
+    // gecombineerde pool < 4), draai ÉÉNMAAL een tweede ronde met een
+    // vereenvoudigde query (procedure-/vraagwoorden eraf, 2-4 kerntermen). Merge
+    // en dedupliceer met ronde 1. Max één ronde per zoekopdracht (kostenbeheer).
+    const verbreding = { gedraaid: false, vereenvoudigdeQuery: null, extraHits: 0 };
+    const poolDun = serperHits.length < 3 || (serperHits.length + ningResults.length) < 4;
+    if (poolDun) {
+      const simple = simplifyQuery(q);
+      if (simple && normalizeQuery(simple) !== normalizeQuery(q)) {
+        verbreding.gedraaid = true;
+        verbreding.vereenvoudigdeQuery = simple;
+        const [s2, n2] = await Promise.allSettled([
+          serperSearch(simple, rubriekTag),
+          ningSearch(simple, { timeoutMs: 3000, max: 20 }),
+        ]);
+        const s2hits = s2.status === 'fulfilled' ? s2.value : [];
+        const n2hits = n2.status === 'fulfilled' ? n2.value : [];
+        let extra = 0;
+        const seenS = new Set(serperHits.map(h => h.link));
+        for (const h of s2hits) {
+          if (h.link && !seenS.has(h.link)) { seenS.add(h.link); serperHits.push(h); extra++; }
+        }
+        const seenN = new Set(ningResults.map(r => r.url));
+        for (const r of n2hits) {
+          if (r.url && !seenN.has(r.url)) { seenN.add(r.url); ningResults.push(r); extra++; }
+        }
+        verbreding.extraHits = extra;
+      }
+    }
+
     if (debugMode) {
       const serperIF = serperHits.filter(h => (h.link || '').includes('infofrankrijk.com')).length;
       debugInfo.serperHits = { totaal: serperHits.length, if: serperIF, forum: serperHits.length - serperIF };
       debugInfo.ningHitsVoorCap = ningResults.length;
+      debugInfo.verbreding = verbreding;
     }
 
     // Balans: goud/promoted (best-effort, gecacht) vast ophalen — nodig voor de
