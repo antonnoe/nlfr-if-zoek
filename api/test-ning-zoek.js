@@ -12,24 +12,17 @@
  * inline gehouden zodat deze functie zelfstandig werkt (geen CLI-side-effects,
  * geen cross-map-bundling).
  *
- * NING serveert een incomplete TLS-keten (curl error 60). We geven daarom de
- * ontbrekende keten (intermediate + root) mee aan de fetch via een https-agent
- * met ca-optie, zodat de verbinding mét normale TLS-verificatie (zonder -k)
- * slaagt.
+ * NING serveert een incomplete TLS-keten (curl error 60). De CA-set (systeem-
+ * roots + de twee inline certs) en een kant-en-klare fetch staan gecentraliseerd
+ * in ./_ning-agent.js (gedeeld met api/search.js). Dit endpoint gebruikt die.
  *
- * De keten staat hieronder INLINE (publieke certificaten), zodat hij niet
- * afhankelijk is van file-tracing bij de Vercel-deploy (het losse bestand werd
- * niet mee-gedeployed → ENOENT). Bron van waarheid blijft
- * certs/ning-ca-bundle.pem; .github/workflows/nlfr-bereik-test.yml houdt dat
- * bestand actueel. Werk bij een keten-wijziging beide bij.
- *
- * We BREIDEN de CA-set UIT (tls.rootCertificates + deze twee certs) i.p.v. te
- * vervangen: NING kan aan Node een andere keten serveren (RSA/andere root) dan
- * aan curl (ECDSA/YR2), dus we moeten beide vertrouwensankers behouden.
+ * TIJDELIJKE parameter: ?raw=1 geeft de volledige zoekpagina-HTML terug
+ * (gecapt op ~150KB, no-store) — puur om de parser te kalibreren op de echte
+ * resultaatblokken. Verwijderen na de kalibratie/route B-besluit.
  */
 
-import https from 'node:https';
 import tls from 'node:tls';
+import { ningFetch, NING_CA_CERTS } from './_ning-agent.js';
 
 const BASE = 'https://www.nederlanders.fr';
 const SEARCH = BASE + '/main/search/search';
@@ -166,84 +159,10 @@ function parseResults(html, max = 10) {
   return { via, items: clean };
 }
 
-// --------------------------- CA-bundle (inline) ---------------------------
+// --------------------------- CA-bundle ---------------------------
 
-// Intermediate + root, INLINE opgenomen zodat de deploy niet van file-tracing
-// afhangt. Bron: certs/ning-ca-bundle.pem (bijgehouden door
-// .github/workflows/nlfr-bereik-test.yml). Publieke certificaten, geen geheimen.
-// Intermediate: C = US, O = Let's Encrypt, CN = YR2
-// Root:         C = US, O = ISRG, CN = Root YR
-const NING_CA = `-----BEGIN CERTIFICATE-----
-MIIE2jCCAsKgAwIBAgIQTr0klH4k05SALYSlL9WzGTANBgkqhkiG9w0BAQsFADAu
-MQswCQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQMA4GA1UEAxMHUm9vdCBZUjAe
-Fw0yNTA5MDMwMDAwMDBaFw0yODA5MDIyMzU5NTlaMDMxCzAJBgNVBAYTAlVTMRYw
-FAYDVQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQDEwNZUjIwggEiMA0GCSqGSIb3
-DQEBAQUAA4IBDwAwggEKAoIBAQDZ0LxwBppqh84luqMerV/eeL/fXQ7mLQQv1Lnp
-WKZbyvGpx6wh6AfnslAnF6ewTkcHA+gSOoBvm3Dfm06AuGiF+KRut4fAcowqnAQQ
-CW98+QPP/eOv/wug7Iyk4NkOxf2I6g2f55T6nJoOTLFcukeRq80JGQEYan+dPFr9
-OGUgQK2hGKgNkW87pappsOAuUJcroYhRt5uUis4qaZireiseu32gzDJNBAiKtsvd
-6HX4v25bpkRNcS/B/Gtc9kVbUpD+2PLPxdei3Tim55k4tfAEXwD2qyiPTxrTNq6l
-N+AMr5g2c1dNqkOTwjxeV6L5lpP1rGiYvLnRaPlOqyZRPW+5AgMBAAGjge4wgesw
-DgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQMMAoGCCsGAQUFBwMBMBIGA1UdEwEB/wQI
-MAYBAf8CAQAwHQYDVR0OBBYEFEAVLSZ57TIgnt+ach3WMh+BDIEMMB8GA1UdIwQY
-MBaAFN7nW2DQIm1AKH0/DQH+pLVStFGUMDIGCCsGAQUFBwEBBCYwJDAiBggrBgEF
-BQcwAoYWaHR0cDovL3lyLmkubGVuY3Iub3JnLzATBgNVHSAEDDAKMAgGBmeBDAEC
-ATAnBgNVHR8EIDAeMBygGqAYhhZodHRwOi8veXIuYy5sZW5jci5vcmcvMA0GCSqG
-SIb3DQEBCwUAA4ICAQB0ZUQWZ9/Yn9COEpo+JfecMnB0h0vwDm/M66IqXqw3LoaL
-mx9lZvRTeDIS67PUeI3yCA2W6PKRD0/FE/G57lOmS+Xy5AaaL00ICGOqjNcCaMWW
-8o8nevHOd4i4lqgtznE/28QwlcdJyF8yBiWHpnyjhEpmNWJURgOCOg2xpwRMBCsj
-MScqYPtOhBeuYQvSwAEeTML2Ukh6uGuX4E14q65Ja8cdjF5bAldnP1eE4FBaAwsZ
-G2fOqqrKV03Y85Nw2btedP1AtliQuJZs/Jo/gXxXdc7LrH3McgnpnbTiAncX7yES
-hP6kzQejllqMCIt52HOjxDGWafS7Xw+DKwqmH+Eqy8dcbOuag/1AYlQoKNVK3F5q
-Hh6tEDiMqQcLIibGKteE6iHo4A/bIScbzrhXUYuism42ZYzmc48FMVIH3qy4L84E
-TdAH2gtxw0PAhvRVXp8HP7wfngpzsN/8xOTpeRSbM4+Qbc56G6+Bifmv6sk1ieQb
-NA3wJdl4DDUuQSV8hBgx6zoI1ZSGORprDFux7c6rhc77QZMSRrEgomBeklervEve
-86ylWmZ3WWHV6RLMi8xNvjd71r4EPIGgY7BZU/VPBkq+uA7Gb6mbJnFgV43uh3xy
-LRFgxIAphIukwTGSMZZR+AI+Qnp0BYTWovHXozOf3H8r6hozEoT02JHn0AeTfA==
------END CERTIFICATE-----
------BEGIN CERTIFICATE-----
-MIIF9DCCA9ygAwIBAgIRAPJLbRf52a18scn+p4eCaZ8wDQYJKoZIhvcNAQELBQAw
-TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
-cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMjYwNTEzMDAwMDAw
-WhcNMzIwOTAyMjM1OTU5WjAuMQswCQYDVQQGEwJVUzENMAsGA1UEChMESVNSRzEQ
-MA4GA1UEAxMHUm9vdCBZUjCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIB
-ANvGJnN78CTJdWL3+eGfsLN5TrNBJs+VH9hRXqRbwxu9sGNiB0BD1fcOxbSUQCJI
-M1xE13Db+5Cw1w0s0EBYsvuIP/6joF0w8cuImbgR1OGgYbSQ4OpzI+DG8SGuTlcE
-873OCS+kh3srlo6vl43M5OJg4Aeo1sfHp6kTJDoIiFBNJAY+OKfX/FUvYKuhjT+n
-o49lmqmupSBI5PkBQiqrEGtWU5uxU/cQWHGu8jSjFBznZqvbNPLMXMLFxCb3WTfr
-JBXXjqvWG+v4bjzxjjeAtOlU7qarRDvNOyAuQYLln904M+faKx8hnLCpJ15ZqaEg
-cNlY+9MMWcC5yvL2A2j3l9+2buggZX+dOE91zYmIdawTvSZuVvlbRrAlLxIB6pwM
-BjneXCjYQ8+3BCCjssbSNpZU3hTcBDdhfAlEDlYr6pEatnMdmDT5BqnKC92bd0Eh
-M1fbLHioLccLCuievT8ZkPhZrq7Mii7gNXAcUEAR8+lzYal+9zTg7C5DALyVOeG/
-CqfRAMn1KSHCR0NSA6P8tn/mGRlnCct5rtVCLnVySVpU6H1qGg3DgTOuskf8eahT
-MiYbI5ezPJmO5ertalskQ1utp74+eDy92PI4ftHKTbq9IWhH4YZKh3WnJEIt+oQv
-lYZbY8tpEroKrFB6PFGzrJIDRyts4HqvuH52RFj2zv/BAgMBAAGjgeswgegwDgYD
-VR0PAQH/BAQDAgEGMBMGA1UdJQQMMAoGCCsGAQUFBwMBMA8GA1UdEwEB/wQFMAMB
-Af8wHQYDVR0OBBYEFN7nW2DQIm1AKH0/DQH+pLVStFGUMB8GA1UdIwQYMBaAFHm0
-WeZ7tuXkAXOACIjIGlj26ZtuMDIGCCsGAQUFBwEBBCYwJDAiBggrBgEFBQcwAoYW
-aHR0cDovL3gxLmkubGVuY3Iub3JnLzATBgNVHSAEDDAKMAgGBmeBDAECATAnBgNV
-HR8EIDAeMBygGqAYhhZodHRwOi8veDEuYy5sZW5jci5vcmcvMA0GCSqGSIb3DQEB
-CwUAA4ICAQA8spSI95KKfn2W6GMmDpHBJSPaLbsS3W93cijJCRCYAc1fsJgL1FIL
-7C0C9ecPOdcwB2fi0Dk2p94j9iTJCxmt5CFSKLRWwnXT2MMSXexVxqoVB79BdWPx
-VXETkVme/qYSAuKVHh5Ps+5BixgmwS1JkjSAc+MfrUbNssVEEnH0aEiAh+rotXAV
-JSP/Ye7LJPEwD9DWG72vVWbhAcuOf5OLjz57Ctk7MgQHynZ7+PlHJtajroCaIbtC
-r6tcZZaAwUQm+jQyeWdV+2hv9deOYFmKeQyjjcSrN5Nadrw+L9DZJLbA1HqeNvLh
-BgqpP0fvJq2N6EtD574N6eMI7uMsJTnji2UDz9el5XLSv9fqJMuDQtYVb2oTNoKp
-oUqhxPVC0aq4eG5MESaIdn8b5ZGSSeAJLMHXljEdlNza+ncfkviXk1POLnnFdvx8
-/gk6M374WbLWFXw8N141B/Rl/tINGfl1TxOIiqtiMYkL02RSGb1kq34BL9NPP27z
-RGMuHGnzS3hFIrRTfKxrzUZ9RzQWzEG3K6fJ3r2nqSltkeytis9DIBoFY9VmVyjL
-M71DMi+y1+TRSJVClEMwvA4yL++7q9XZx5r5wBRWB4kQTKH5qyoZnDw7iiuh1lID
-yDFx8r7i9vIJU5HS3moZLkYWAOilMaV9N56A9Bgb6dNcHkvg3NoaYA==
------END CERTIFICATE-----
-`;
-
-// De twee inline certificaten los, zodat we ze bij tls.rootCertificates kunnen
-// voegen (uitbreiden, niet vervangen).
-const NING_CA_CERTS =
-  NING_CA.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) || [];
-// Systeem-roots + onze inline certs. Zo blijft elke keten die NING mogelijk
-// serveert (RSA naar een standaardroot, óf ECDSA/YR2) verifieerbaar.
-const CA_SET = [...tls.rootCertificates, ...NING_CA_CERTS];
+// De keten + agent zijn nu gecentraliseerd in ./_ning-agent.js (gedeeld met
+// api/search.js). We rapporteren alleen nog het aantal certificaten.
 const caStatus = {
   loaded: true,
   source: 'inline',
@@ -252,61 +171,15 @@ const caStatus = {
 
 // --------------------------- fetch met timeout ---------------------------
 
-// Node https-agent met ca-optie i.p.v. global fetch, zodat we de aangevulde
-// keten kunnen meegeven. Volgt redirects; geeft dezelfde vorm terug als voorheen.
-function fetchText(url, timeoutMs = 5000, maxRedirects = 5) {
-  return new Promise((resolve, reject) => {
-    const doReq = (targetUrl, redirectsLeft) => {
-      let u;
-      try {
-        u = new URL(targetUrl);
-      } catch (e) {
-        return reject(e);
-      }
-      const opts = {
-        method: 'GET',
-        hostname: u.hostname,
-        port: u.port || 443,
-        path: u.pathname + u.search,
-        servername: u.hostname,
-        headers: {
-          'User-Agent': BROWSER_UA,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'nl,nl-NL;q=0.9,en;q=0.6',
-        },
-      };
-      opts.ca = CA_SET; // systeem-roots + inline certs (uitbreiden, niet vervangen)
+const NING_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'nl,nl-NL;q=0.9,en;q=0.6',
+};
 
-      const req = https.request(opts, (res) => {
-        const status = res.statusCode || 0;
-        const loc = res.headers.location;
-        if (status >= 300 && status < 400 && loc && redirectsLeft > 0) {
-          res.resume(); // body legen
-          let next;
-          try {
-            next = new URL(loc, targetUrl).toString();
-          } catch (e) {
-            return reject(e);
-          }
-          return doReq(next, redirectsLeft - 1);
-        }
-        let data = '';
-        res.setEncoding('utf8');
-        res.on('data', (d) => { data += d; });
-        res.on('end', () => resolve({
-          status,
-          ok: status >= 200 && status < 300,
-          length: data.length,
-          body: data,
-          finalUrl: targetUrl,
-        }));
-      });
-      req.setTimeout(timeoutMs, () => { req.destroy(new Error(`Timeout (>${timeoutMs}ms)`)); });
-      req.on('error', reject);
-      req.end();
-    };
-    doReq(url, maxRedirects);
-  });
+// Dunne wrapper rond de gedeelde ningFetch (agent + CA-set uit _ning-agent.js).
+function fetchText(url, timeoutMs = 5000) {
+  return ningFetch(url, { timeoutMs, headers: NING_HEADERS });
 }
 
 // --------------------------- keten-diagnose ---------------------------
@@ -379,19 +252,43 @@ export default async function handler(req, res) {
     // Query-parameters (werkt met Vercel's req.query en met een kale URL).
     let q = '';
     let page = '';
+    let raw = '';
     if (req.query && typeof req.query === 'object') {
       q = (req.query.q || '').toString();
       page = (req.query.page || '').toString();
+      raw = (req.query.raw || '').toString();
     } else {
       const u = new URL(req.url, 'http://localhost');
       q = u.searchParams.get('q') || '';
       page = u.searchParams.get('page') || '';
+      raw = u.searchParams.get('raw') || '';
     }
     q = q.trim();
     if (!q) {
       return res.status(400).json({ error: 'Parameter q is verplicht', stap: 'validatie' });
     }
     const pageNum = page ? parseInt(page, 10) : null;
+
+    // TIJDELIJK: ?raw=1 → volledige zoekpagina-HTML als platte tekst (max ~150KB).
+    // Alleen om de parser te kalibreren; verwijderen na route B-besluit.
+    if (raw === '1') {
+      const params = new URLSearchParams({ q });
+      if (pageNum && pageNum > 1) params.set('page', String(pageNum));
+      const rawUrl = `${SEARCH}?${params.toString()}`;
+      try {
+        const r = await fetchText(rawUrl, 8000);
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.status(r.status || 200);
+        return res.end((r.body || '').slice(0, 150000));
+      } catch (e) {
+        return res.status(200).json({
+          error: e && e.message ? e.message : String(e),
+          code: e && e.code ? e.code : undefined,
+          stap: 'fetch-raw',
+          rawUrl,
+        });
+      }
+    }
 
     const report = {
       note: 'TIJDELIJK verkennings-endpoint — verwijderen na route B-besluit.',

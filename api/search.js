@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
+import { ningFetch } from './_ning-agent.js';
 
 const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten (titel, snippet, URL) van twee bronnen aangeleverd en presenteert de relevante daarvan. Je zoekt niet zelf en je beantwoordt de vraag niet — je selecteert en vat de gevonden bronnen samen.
 
@@ -255,16 +256,15 @@ async function enrichTopThreads(threads, topN = 3) {
   const enriched = new Map();
   await Promise.allSettled(
     candidates.map(async (t) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000);
       try {
-        const res = await fetch(t.url, {
-          signal: controller.signal,
+        // Gedeelde agent met NING CA-set (fix voor de incomplete certketen die
+        // deze verrijking in productie stil liet falen). Timeout: 3s.
+        const res = await ningFetch(t.url, {
+          timeoutMs: 3000,
           headers: { 'User-Agent': 'NLFR-IF-Zoek/1.0' },
         });
-        clearTimeout(timer);
         if (!res.ok) return;
-        const html = await res.text();
+        const html = res.body;
 
         let replyCount = (html.match(/Reactie van/g) || []).length;
         if (!replyCount) {
@@ -277,7 +277,7 @@ async function enrichTopThreads(threads, topN = 3) {
 
         enriched.set(t.url, { replyCount, views });
       } catch {
-        clearTimeout(timer);
+        /* stil falen — verrijking is optioneel */
       }
     })
   );
