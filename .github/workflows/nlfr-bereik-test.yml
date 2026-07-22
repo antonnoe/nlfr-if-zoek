@@ -190,36 +190,42 @@ jobs:
             inter_subject="$(openssl x509 -in "$TMP/inter.pem" -noout -subject 2>/dev/null | sed 's/^subject=//')"
             echo "- Intermediate: \`${inter_subject}\`" >> "$OUT"
             rooth="$(openssl x509 -in "$TMP/inter.pem" -noout -issuer_hash 2>/dev/null || true)"
-            for cand in "/etc/ssl/certs/${rooth}.0" "/etc/ssl/certs/${rooth}.1" "/etc/ssl/certs/${rooth}.2"; do
-              if [ -f "$cand" ]; then
-                cp "$cand" "$TMP/root.pem"
-                got_root="ja (symlink)"
+            # (a) Doorloop de vooraf-gehashte truststore-symlinks en match op
+            #     subject_hash == issuer_hash van het intermediate (zelfde openssl,
+            #     dus consistente hash — robuuster dan bestandsnaam raden).
+            for f in /etc/ssl/certs/*.0 /etc/ssl/certs/*.pem; do
+              [ -e "$f" ] || continue
+              sh="$(openssl x509 -in "$f" -noout -subject_hash 2>/dev/null || true)"
+              if [ -n "$sh" ] && [ "$sh" = "$rooth" ]; then
+                cp "$f" "$TMP/root.pem"
+                got_root="ja (truststore)"
                 break
               fi
             done
-            if [ "$got_root" = "nee" ] && [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-              awk -v d="$TMP" '/-----BEGIN CERTIFICATE-----/{i++} {print > (d "/sys-" i ".pem")}' /etc/ssl/certs/ca-certificates.crt
-              for f in "$TMP"/sys-*.pem; do
-                [ -f "$f" ] || continue
-                sh="$(openssl x509 -in "$f" -noout -subject_hash 2>/dev/null || true)"
-                if [ -n "$sh" ] && [ "$sh" = "$rooth" ]; then
-                  cp "$f" "$TMP/root.pem"
-                  got_root="ja (store-scan)"
-                  break
+            # (b) Niet in de store (bv. nieuwe ECDSA-root): haal de root via het
+            #     AIA-veld van het intermediate zelf.
+            if [ "$got_root" = "nee" ]; then
+              raia="$(openssl x509 -in "$TMP/inter.pem" -noout -text 2>/dev/null | grep -oE 'CA Issuers - URI:http[^[:space:]]+' | sed 's/^CA Issuers - URI://' | head -1 || true)"
+              if [ -n "$raia" ]; then
+                curl -sSL --max-time 15 -o "$TMP/root.raw" "$raia" || true
+                if openssl x509 -inform DER -in "$TMP/root.raw" -out "$TMP/root.pem" 2>/dev/null; then
+                  got_root="ja (AIA)"
+                elif openssl x509 -inform PEM -in "$TMP/root.raw" -out "$TMP/root.pem" 2>/dev/null; then
+                  got_root="ja (AIA)"
                 fi
-              done
-              rm -f "$TMP"/sys-*.pem
+              fi
             fi
           fi
-          echo "- Root gevonden in systeem-truststore: **${got_root}**" >> "$OUT"
+          echo "- Root gevonden: **${got_root}**" >> "$OUT"
 
           # 4) Bundle samenstellen: intermediate + root (publieke certificaten).
           : > "$BUNDLE"
           if [ -f "$TMP/inter.pem" ]; then
             {
-              echo "# NLFR intermediate + root CA-bundle — publieke certificaten, geen geheimen."
+              echo "# NLFR CA-bundle — publieke certificaten, geen geheimen."
               echo "# Automatisch samengesteld door .github/workflows/nlfr-bereik-test.yml."
               echo "# Vult de door de server weggelaten keten aan (fix voor curl error 60)."
+              echo "# Bevat het intermediate en (indien gevonden) de root."
               echo "# Intermediate: ${inter_subject}"
             } >> "$BUNDLE"
             openssl x509 -in "$TMP/inter.pem" >> "$BUNDLE"
