@@ -6,6 +6,12 @@
   Deze codeblok komt in de body van die NING-pagina (de NING-pagina levert zelf
   de site-header en het menu; hier alleen het zoek-iframe + script).
 
+  STRIPBESTENDIG: NING's pagina-editor stript attributen en <style>, waardoor het
+  iframe op de standaardbreedte (300px) terugvalt. Daarom staat het iframe hier
+  KAAL (alleen een id) en zet het script bij initialisatie ALLE opmaak via
+  element.style + setAttribute. Ook de omliggende container krijgt width/maxWidth
+  100% voor het geval NING een smalle module-wrapper toevoegt.
+
   Het script:
    (a) geeft ?q= uit de pagina-URL door aan de app;
    (b) leest ning.CurrentProfile en voegt &lid=1 toe bij een ingelogd lid
@@ -13,21 +19,29 @@
    (c) bevat de nlfrZoekHeight-listener met alleen-bij-wijziging-bescherming.
   GEEN ResizeObserver en geen ander hoogtemechanisme — de app meldt zijn hoogte.
 -->
-<style>
-  #zoek {
-    display: block;
-    width: 100%;
-    border: 0;
-    height: 600px;              /* starthoogte; groeit mee via nlfrZoekHeight */
-    background: #f6f2ef;
-  }
-</style>
-
-<iframe id="zoek" src="about:blank" scrolling="no" title="AI-zoekresultaten" name="zoek"></iframe>
+<iframe id="zoek"></iframe>
 
 <script>
 (function () {
   var zoek = document.getElementById("zoek");
+
+  // Alle opmaak in JS zetten — stripbestendig (NING verwijdert attributen/CSS).
+  zoek.style.display = "block";
+  zoek.style.width = "100%";
+  zoek.style.border = "0";
+  zoek.style.height = "600px";        // starthoogte; groeit mee via nlfrZoekHeight
+  zoek.style.background = "#f6f2ef";
+  zoek.setAttribute("scrolling", "no");
+  zoek.setAttribute("title", "AI-zoekresultaten");
+  zoek.setAttribute("name", "zoek");
+
+  // Omliggende container ook op volle breedte, mocht NING een smalle wrapper
+  // toevoegen.
+  var wrap = zoek.parentNode;
+  if (wrap && wrap.style) {
+    wrap.style.width = "100%";
+    wrap.style.maxWidth = "100%";
+  }
 
   // (a) zoekterm uit de pagina-URL
   var q = "";
