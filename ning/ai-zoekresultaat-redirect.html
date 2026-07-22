@@ -1,23 +1,22 @@
 <!-- Referentiekopie — plakken als NING-bestand ai-zoekresultaat (vervangt de oude inhoud) -->
 <!--
   Oude zoek-pagina → nieuwe zoek-pagina. Behoudt ?q= en stuurt door naar
-  [PAGINA-URL]. Aangenomen pagina-URL: https://www.nederlanders.fr/ai-zoek
-  (pas beide plekken hieronder aan als je een andere slug kiest).
+  https://www.nederlanders.fr/page/ai-zoek.
 
   Meta-refresh als vangnet (zonder q, mocht JS uit staan) + JS-redirect die de
   zoekterm meeneemt. Zo blijven oude links werken.
 -->
-<meta http-equiv="refresh" content="0; url=https://www.nederlanders.fr/ai-zoek">
+<meta http-equiv="refresh" content="0; url=https://www.nederlanders.fr/page/ai-zoek">
 <script>
 (function () {
   var q = "";
   try { q = new URLSearchParams(window.location.search).get("q") || ""; } catch (e) {}
-  var base = "https://www.nederlanders.fr/ai-zoek";
+  var base = "https://www.nederlanders.fr/page/ai-zoek";
   var url = base + (q ? ("?q=" + encodeURIComponent(q)) : "");
   window.location.replace(url);
 })();
 </script>
 <p style="font-family:sans-serif;font-size:14px">
   Je wordt doorgestuurd naar de AI-zoek.
-  <a href="https://www.nederlanders.fr/ai-zoek">Klik hier</a> als dat niet automatisch gebeurt.
+  <a href="https://www.nederlanders.fr/page/ai-zoek">Klik hier</a> als dat niet automatisch gebeurt.
 </p>
