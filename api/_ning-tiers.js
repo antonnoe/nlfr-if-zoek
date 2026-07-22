@@ -170,12 +170,16 @@ export function isRestrictedTopic(q) {
   return RESTRICTED_RE.test(norm);
 }
 
-// Glijdende ouderdomsweging (0..1): recent = hoog, oud = laag; geen jaar → neutraal.
-export function recencyWeight(datum, curYear) {
+// Glijdende ouderdomsweging (0..1): recent = hoog, oud = laag; geen jaar →
+// neutraal. `heavy` = extra zware demping (aanzienlijk sterker dan de reguliere
+// ~8%/jaar) voor forumbronnen bij een restricted topic die > 5 jaar oud zijn:
+// ze zakken naar onderen, maar verdwijnen NOOIT (inclusief, nooit exclusief).
+export function recencyWeight(datum, curYear, heavy = false) {
   const m = (datum || '').match(/(20\d{2})/);
   if (!m) return 0.5;
   const age = curYear - parseInt(m[1], 10);
   if (age <= 0) return 1;
+  if (heavy) return Math.max(0.02, 0.30 - age * 0.03); // veel steiler dan normaal
   return Math.max(0.05, 1 - age * 0.08); // ~8%/jaar, vloer 0.05
 }
 
@@ -185,10 +189,14 @@ export function recencyWeight(datum, curYear) {
  * Binnen een tier telt recentere datum zwaarder. Comment-treffers krijgen
  * viaReactie:true en tellen (promoted/replies) mee voor hun draad.
  *
- * ctx: { gold:Set, promoted:{ids,titles}, replyByUrl:Map, curYear:number }
+ * Bij een restricted topic (geld/regel/procedure) worden forumbronnen NIET
+ * verwijderd; wie > 5 jaar oud is krijgt een extra zware ouderdomsdemping in de
+ * score plus `datumwaarschuwing: true` in de data.
+ *
+ * ctx: { gold:Set, promoted:{ids,titles}, replyByUrl:Map, curYear:number, strict:boolean }
  */
 export function scoreForumSources(forumSources, ctx) {
-  const { gold, promoted, replyByUrl, curYear } = ctx;
+  const { gold, promoted, replyByUrl, curYear, strict = false } = ctx;
   const scored = forumSources.map((s) => {
     const isComment = s.kind === 'comment';
     const objId = blogObjectId(s.url);
@@ -218,12 +226,18 @@ export function scoreForumSources(forumSources, ctx) {
     else if (goldAuthor) tier = 2;
     else if (replyCount >= 5) tier = 3;
 
-    const rec = recencyWeight(s.datum, curYear);
+    // Restricted topic + ouder dan 5 jaar → extra zware demping + waarschuwing,
+    // maar de bron blijft (nooit verwijderen).
+    const yearMatch = (s.datum || '').match(/(20\d{2})/);
+    const age = yearMatch ? curYear - parseInt(yearMatch[1], 10) : null;
+    const datumwaarschuwing = !!(strict && age != null && age > 5);
+
+    const rec = recencyWeight(s.datum, curYear, datumwaarschuwing);
     const replyBonus = replyCount > 0 ? Math.min(30, Math.log2(replyCount + 1) * 6) : 0;
     // Tier domineert; daarbinnen recency, dan een kleine reactie-bonus.
     const score = (5 - tier) * 10000 + rec * 1000 + replyBonus;
 
-    return {
+    const out = {
       ...s,
       tier,
       viaReactie: isComment,
@@ -231,6 +245,8 @@ export function scoreForumSources(forumSources, ctx) {
       views: enr.views,
       _score: score,
     };
+    if (datumwaarschuwing) out.datumwaarschuwing = true;
+    return out;
   });
   scored.sort((a, b) => b._score - a._score);
   return scored;
