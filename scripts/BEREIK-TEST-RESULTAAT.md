@@ -1,6 +1,6 @@
 # NLFR bereik-test — resultaat
 
-Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 09:03:52 UTC.
+Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 09:41:07 UTC.
 
 Doel: kan een Actions-runner nederlanders.fr server-side ophalen?
 Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 300 tekens.
@@ -30,7 +30,7 @@ Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 3
 - curl-foutmelding (beveiligd): `curl: (60) SSL certificate problem: unable to get local issuer certificate More details here: https://curl.se/docs/sslcerts.html curl failed to verify the legitimacy of the server and therefore could `
 - Insecure fallback-probe (`curl -k`, alleen diagnose):
   - HTTP-statuscode: `200`
-  - Response-grootte: `174203` bytes
+  - Response-grootte: `183173` bytes
   - curl-exitcode: `0`
 - Markers (feed: <rss of <feed): **ja (<feed)**
 - Eerste 300 tekens (uit fallback-probe):
