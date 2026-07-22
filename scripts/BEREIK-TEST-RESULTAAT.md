@@ -1,6 +1,6 @@
 # NLFR bereik-test — resultaat
 
-Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 06:59:49 UTC.
+Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 06:59:55 UTC.
 
 Doel: kan een Actions-runner nederlanders.fr server-side ophalen?
 Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 300 tekens.
