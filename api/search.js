@@ -99,22 +99,25 @@ let lidLimit = null;
 let anonLimit = null;
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
   sharedRedis = Redis.fromEnv();
+  // IF-abonnees (token) zoeken onbeperkt; 40/dag is enkel een stille technische
+  // veiligheidsgrens (misbruik/lus-bescherming), geen commerciële limiet.
   subscriberLimit = new Ratelimit({
     redis: sharedRedis,
-    limiter: Ratelimit.fixedWindow(15, '1 d'),
+    limiter: Ratelimit.fixedWindow(40, '1 d'),
     prefix: 'nlfr-if-zoek:sub',
     analytics: false,
   });
-  // Ingelogde NING-leden (lid=1): 15 zoekopdrachten per dag, op IP.
+  // Ingelogde NING-leden (lid=1): 8 zoekopdrachten per dag, op IP.
   lidLimit = new Ratelimit({
     redis: sharedRedis,
-    limiter: Ratelimit.fixedWindow(15, '1 d'),
+    limiter: Ratelimit.fixedWindow(8, '1 d'),
     prefix: 'nlfr-if-zoek:lid',
     analytics: false,
   });
+  // Bezoekers (niet-lid): 3 zoekopdrachten per dag, op IP.
   anonLimit = new Ratelimit({
     redis: sharedRedis,
-    limiter: Ratelimit.fixedWindow(6, '1 d'),
+    limiter: Ratelimit.fixedWindow(3, '1 d'),
     prefix: 'nlfr-if-zoek:anon',
     analytics: false,
   });
@@ -348,10 +351,10 @@ export default async function handler(req, res) {
       const { success } = await limiter.limit(identifier);
       if (!success) {
         const message = isSubscriber
-          ? 'Je dagelijkse limiet van 15 zoekopdrachten is bereikt. Voor meer kun je terecht bij Café Claude.'
+          ? 'Je hebt vandaag uitzonderlijk veel gezocht en een technische veiligheidsgrens bereikt. Probeer het later vandaag opnieuw, of stel je vraag aan Café Claude.'
           : isLid
-            ? 'Je 15 zoekopdrachten voor vandaag zijn op. Morgen kun je weer verder — of doorzoek zelf het forum.'
-            : 'Je 6 gratis zoekopdrachten voor vandaag zijn op. Word gratis lid van Nederlanders.fr voor 15 per dag.';
+            ? 'Je 8 zoekopdrachten voor vandaag zijn op. Morgen kun je weer verder. Met een Infofrankrijk-abonnement zoek je onbeperkt — of doorzoek zelf het forum.'
+            : 'Je 3 gratis zoekopdrachten voor vandaag zijn op. Word gratis lid van Nederlanders.fr voor 8 per dag.';
         return res.status(429).json({ subscriber: isSubscriber, lid: isLid, message });
       }
     } catch (e) {

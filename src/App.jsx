@@ -458,22 +458,31 @@ function Results({ query, rubriek, narrative, sources, searchCount, cached, onRe
 
 /* ---------- limit ---------- */
 function LimitCard({ subscriber, lid, message, onReset, query }) {
-  // IF-abonnee en ingelogd lid hebben beide 15/dag; bezoekers 6/dag.
-  const ruimeLimiet = subscriber || lid;
+  // Drie doelgroepen: IF-abonnee (onbeperkt, 40/dag stille veiligheidsgrens),
+  // lid (8/dag) en bezoeker (3/dag).
   return (
     <section className="shell">
       <div className="limit-card">
         <div className="limit-eyebrow">Dagelijkse limiet</div>
         <h2 className="limit-title">
-          {ruimeLimiet ? <>15 zoekopdrachten <em>gebruikt vandaag</em></> : <>6 gratis zoekopdrachten <em>op</em></>}
+          {subscriber
+            ? <>Even <em>pauze</em></>
+            : lid
+              ? <>8 zoekopdrachten <em>gebruikt vandaag</em></>
+              : <>3 gratis zoekopdrachten <em>op</em></>}
         </h2>
         <p className="limit-text">{message}</p>
         <div className="limit-actions">
-          {/* Niet-leden: nodig uit om (gratis) lid te worden voor 15/dag. Leden en
-             abonnees hebben die ruimte al, dus geen aanmeld-CTA. */}
+          {/* Niet-leden: gratis lid worden voor 8/dag. */}
           {!subscriber && !lid && (
             <a className="btn-primary" href={SIGNUP_URL} target="_top" rel="noopener noreferrer">
-              Word gratis lid voor 15 per dag <IconArrow />
+              Word gratis lid voor 8 per dag <IconArrow />
+            </a>
+          )}
+          {/* Leden: verwijzing naar het IF-abonnement — onbeperkt zoeken. */}
+          {lid && (
+            <a className="btn-primary" href="https://infofrankrijk.com/abonnement/" target="_blank" rel="noopener noreferrer">
+              Onbeperkt zoeken met Infofrankrijk <IconArrow />
             </a>
           )}
           <a className={subscriber ? "btn-primary" : "btn-ghost"} href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
