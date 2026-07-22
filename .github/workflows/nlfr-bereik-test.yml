@@ -46,7 +46,9 @@ jobs:
             local url="$1" mdesc="$2" p1="$3" p2="$4"
             local body="$TMP/body.html" errf="$TMP/err.txt"
             local out code size markers first rc curlerr
+            local kcode ksize krc fallback_used bodyfor
 
+            # --- Beveiligde poging (normale TLS-verificatie) ---
             rc=0
             out="$(curl -sS -A "$UA" --max-time 15 -o "$body" -w '%{http_code} %{size_download}' "$url" 2>"$errf")" || rc=$?
             code="${out%% *}"
@@ -54,28 +56,57 @@ jobs:
             [ -z "$code" ] && code="000"
             [ -z "$size" ] && size="0"
             [ -f "$body" ] || : > "$body"
-            # curl-foutregel (bv. TLS-verificatie faalt = proxy-MITM zonder vertrouwde CA,
-            # niet per se een NING-blok). Zo staat de oorzaak in het artefact zelf.
             curlerr="$(tr '\n\r\t' '   ' < "$errf" | sed 's/  */ /g' | head -c 200)"
 
+            # --- Diagnostische fallback: alleen als de beveiligde poging faalde ---
+            # curl error 60 (cert kan niet geverifieerd) heeft twee mogelijke oorzaken:
+            #  (a) egress-proxy die TLS intercepteert met een niet-vertrouwde CA, of
+            #  (b) NING levert een incomplete cert-chain (ontbrekend intermediate).
+            # Een insecure (-k) probe onderscheidt beide: krijgen we dán NING-HTML terug,
+            # dan is NING WEL bereikbaar vanaf Actions en is het "slechts" een chain-issue.
+            # Dit is puur een verkenningsdiagnose; nooit voor productie gebruiken.
+            fallback_used="nee"
+            bodyfor="$body"
+            if [ "$code" = "000" ]; then
+              fallback_used="ja"
+              krc=0
+              kout="$(curl -k -sS -A "$UA" --max-time 15 -o "$TMP/body.k" -w '%{http_code} %{size_download}' "$url" 2>"$TMP/err.k")" || krc=$?
+              kcode="${kout%% *}"
+              ksize="${kout##* }"
+              [ -z "$kcode" ] && kcode="000"
+              [ -z "$ksize" ] && ksize="0"
+              [ -f "$TMP/body.k" ] || : > "$TMP/body.k"
+              bodyfor="$TMP/body.k"   # markers/fragment o.b.v. wat de -k-probe opleverde
+            fi
+
             markers="nee"
-            if grep -qi -e "$p1" "$body" 2>/dev/null; then
+            if grep -qi -e "$p1" "$bodyfor" 2>/dev/null; then
               markers="ja ($p1)"
-            elif [ -n "$p2" ] && grep -qi -e "$p2" "$body" 2>/dev/null; then
+            elif [ -n "$p2" ] && grep -qi -e "$p2" "$bodyfor" 2>/dev/null; then
               markers="ja ($p2)"
             fi
 
-            first="$(head -c 300 "$body" | tr -d '\000' | tr '\n\r\t' '   ')"
+            first="$(head -c 300 "$bodyfor" | tr -d '\000' | tr '\n\r\t' '   ')"
 
             {
               echo "## $url"
               echo
-              echo "- HTTP-statuscode: \`$code\`"
-              echo "- Response-grootte: \`$size\` bytes"
-              echo "- curl-exitcode: \`$rc\`"
-              [ -n "$curlerr" ] && echo "- curl-foutmelding: \`$curlerr\`"
+              echo "- HTTP-statuscode (beveiligd): \`$code\`"
+              echo "- Response-grootte (beveiligd): \`$size\` bytes"
+              echo "- curl-exitcode (beveiligd): \`$rc\`"
+              [ -n "$curlerr" ] && echo "- curl-foutmelding (beveiligd): \`$curlerr\`"
+              if [ "$fallback_used" = "ja" ]; then
+                echo "- Insecure fallback-probe (\`curl -k\`, alleen diagnose):"
+                echo "  - HTTP-statuscode: \`$kcode\`"
+                echo "  - Response-grootte: \`$ksize\` bytes"
+                echo "  - curl-exitcode: \`$krc\`"
+              fi
               echo "- Markers ($mdesc): **$markers**"
-              echo "- Eerste 300 tekens:"
+              if [ "$fallback_used" = "ja" ]; then
+                echo "- Eerste 300 tekens (uit fallback-probe):"
+              else
+                echo "- Eerste 300 tekens:"
+              fi
               echo
               echo '~~~html'
               echo "$first"
@@ -83,7 +114,7 @@ jobs:
               echo
             } >> "$OUT"
 
-            echo "[$code] rc=$rc size=$size markers=$markers  $url"
+            echo "[beveiligd $code rc=$rc][fallback ${kcode:-n.v.t.}] markers=$markers  $url"
           }
 
           check "https://www.nederlanders.fr/main/search/search?q=septic+tank" \
