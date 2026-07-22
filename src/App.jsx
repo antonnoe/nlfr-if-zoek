@@ -342,7 +342,7 @@ function Steunblok() {
 }
 
 /* ---------- results ---------- */
-function Results({ query, rubriek, narrative, sources, searchCount, cached, onReset }) {
+function Results({ query, rubriek, narrative, sources, searchCount, cached, onReset, cafeClaude }) {
   const hasNothing = sources.length === 0;
   // Spaarstand: geen narrative → geen samenvatting, geen foutmelding.
   const narrativeText = narrative && narrative.trim() ? narrative.trim() : "";
@@ -366,10 +366,15 @@ function Results({ query, rubriek, narrative, sources, searchCount, cached, onRe
       {hasNothing ? (
         <div className="bron-empty">
           We hebben geen dossiers, artikelen of forumbijdragen gevonden over dit onderwerp.
-          Probeer een andere zoekterm, plaats je vraag zelf op het forum, of stel hem aan{" "}
-          <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer" style={{ color: "#800000", textDecoration: "underline" }}>
-            Café Claude
-          </a>.
+          Probeer een andere zoekterm of plaats je vraag zelf op het forum
+          {cafeClaude && (
+            <>
+              , of stel hem aan{" "}
+              <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer" style={{ color: "#800000", textDecoration: "underline" }}>
+                Café Claude
+              </a>
+            </>
+          )}.
           <div style={{ margin: "16px 0 0" }}>
             <NingSearchLink query={query} compact />
           </div>
@@ -396,10 +401,12 @@ function Results({ query, rubriek, narrative, sources, searchCount, cached, onRe
             <p className="disclaimer-fine">
               Forumbijdragen zijn persoonlijke ervaringen en niet door de redactie geverifieerd.
             </p>
-            <p className="disclaimer-cta">
-              Voor een persoonlijk, geverifieerd antwoord op je vraag kun je terecht bij{" "}
-              <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">Café Claude</a>.
-            </p>
+            {cafeClaude && (
+              <p className="disclaimer-cta">
+                Voor een persoonlijk, geverifieerd antwoord op je vraag kun je terecht bij{" "}
+                <a href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">Café Claude</a>.
+              </p>
+            )}
           </div>
         </>
       )}
@@ -430,16 +437,19 @@ function Results({ query, rubriek, narrative, sources, searchCount, cached, onRe
         </a>
       </div>
 
-      <div className="cta">
-        <span className="cta-icon">☕</span>
-        <div className="cta-body">
-          <div className="cta-title">Meer weten? Stel je vraag aan Café Claude</div>
-          <div className="cta-sub">Persoonlijke AI-begeleiding voor Nederlanders in Frankrijk.</div>
+      {/* Groot Café Claude-blok: alleen binnen een CC-kennisdomein. */}
+      {cafeClaude && (
+        <div className="cta">
+          <span className="cta-icon">☕</span>
+          <div className="cta-body">
+            <div className="cta-title">Meer weten? Stel je vraag aan Café Claude</div>
+            <div className="cta-sub">Persoonlijke AI-begeleiding voor Nederlanders in Frankrijk.</div>
+          </div>
+          <a className="cta-btn" href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
+            Naar Café Claude <IconArrow />
+          </a>
         </div>
-        <a className="cta-btn" href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
-          Naar Café Claude <IconArrow />
-        </a>
-      </div>
+      )}
 
       <div className="new-search">
         <button className="new-search-btn" onClick={onReset}>
@@ -457,9 +467,9 @@ function Results({ query, rubriek, narrative, sources, searchCount, cached, onRe
 }
 
 /* ---------- limit ---------- */
-function LimitCard({ subscriber, lid, message, onReset, query }) {
+function LimitCard({ subscriber, lid, message, onReset, query, cafeClaude }) {
   // Drie doelgroepen: IF-abonnee (onbeperkt, 40/dag stille veiligheidsgrens),
-  // lid (8/dag) en bezoeker (3/dag).
+  // lid (8/dag) en bezoeker (3/dag). Café Claude alleen binnen een CC-domein.
   return (
     <section className="shell">
       <div className="limit-card">
@@ -485,9 +495,12 @@ function LimitCard({ subscriber, lid, message, onReset, query }) {
               Onbeperkt zoeken met Infofrankrijk <IconArrow />
             </a>
           )}
-          <a className={subscriber ? "btn-primary" : "btn-ghost"} href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
-            ☕ Café Claude
-          </a>
+          {/* Café Claude-optie alleen binnen een CC-domein. */}
+          {cafeClaude && (
+            <a className={subscriber ? "btn-primary" : "btn-ghost"} href="https://cafeclaude.fr" target="_blank" rel="noopener noreferrer">
+              ☕ Café Claude
+            </a>
+          )}
           <button className="btn-ghost" onClick={onReset}>Nieuwe vraag</button>
           <NingSearchLink query={query} compact />
         </div>
@@ -544,6 +557,7 @@ export default function App() {
   const [searchCount, setSearchCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [cached, setCached] = useState(false);
+  const [cafeClaude, setCafeClaude] = useState(false);
   const [limitInfo, setLimitInfo] = useState(null);
   const [autoSearchDone, setAutoSearchDone] = useState(false);
   const inputRef = useRef(null);
@@ -606,6 +620,7 @@ export default function App() {
     setSearchCount(0);
     setErrorMsg("");
     setCached(false);
+    setCafeClaude(false);
     setLimitInfo(null);
 
     try {
@@ -620,6 +635,7 @@ export default function App() {
         setLimitInfo({
           subscriber: !!data.subscriber,
           lid: !!data.lid,
+          cafeClaude: !!data.cafeClaude,
           message: data.message || "Dagelijkse limiet bereikt.",
         });
         setIsSubscriber(!!data.subscriber);
@@ -632,6 +648,7 @@ export default function App() {
       setSearchCount(data.searchCount || 0);
       setIsSubscriber(!!data.subscriber);
       setCached(!!data.cached);
+      setCafeClaude(!!data.cafeClaude);
       setResponse(data.narrative || "");
       setSources(Array.isArray(data.sources) ? data.sources : []);
       setState("results");
@@ -656,6 +673,7 @@ export default function App() {
     setResponse("");
     setSources([]);
     setCached(false);
+    setCafeClaude(false);
     setLimitInfo(null);
     setErrorMsg("");
     setState("idle");
@@ -703,6 +721,7 @@ export default function App() {
             searchCount={searchCount}
             cached={cached}
             onReset={onReset}
+            cafeClaude={cafeClaude}
           />
         </>
       )}
@@ -716,6 +735,7 @@ export default function App() {
             message={limitInfo.message}
             onReset={onReset}
             query={query}
+            cafeClaude={limitInfo.cafeClaude}
           />
         </>
       )}

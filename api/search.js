@@ -3,6 +3,7 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { ningSearch } from './_ning-zoek.js';
 import { getGoldList, getPromoted, enrichReplies, dedupeByThread, scoreForumSources, isRestrictedTopic } from './_ning-tiers.js';
+import { matchtCafeClaude } from './_cc-domeinen.js';
 
 const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten (titel, snippet, URL) van twee bronnen aangeleverd en presenteert de relevante daarvan. Je zoekt niet zelf en je beantwoordt de vraag niet — je selecteert en vat de gevonden bronnen samen.
 
@@ -320,7 +321,7 @@ export default async function handler(req, res) {
   const isSubscriber = !!verified;
 
   // Genormaliseerde cache-sleutel (v2): varianten van dezelfde vraag delen één entry.
-  const cacheKey = `nlfr-if-zoek:cache:v2:${normalizeQuery(q)}${rubriekTag ? ':' + rubriekTag : ''}`;
+  const cacheKey = `nlfr-if-zoek:cache:v3:${normalizeQuery(q)}${rubriekTag ? ':' + rubriekTag : ''}`;
   if (sharedRedis) {
     try {
       const cached = await sharedRedis.get(cacheKey);
@@ -350,12 +351,17 @@ export default async function handler(req, res) {
       else { limiter = anonLimit; identifier = ip; }
       const { success } = await limiter.limit(identifier);
       if (!success) {
+        // Café Claude alleen aanbieden als de vraag binnen een CC-domein valt.
+        // Op de limietroute is er nog geen bronnenlijst; match op query + rubriek.
+        const ccMatch = matchtCafeClaude({ query: q, rubriekSignals: [rubriek, rubriekTag], tags: [] });
         const message = isSubscriber
-          ? 'Je hebt vandaag uitzonderlijk veel gezocht en een technische veiligheidsgrens bereikt. Probeer het later vandaag opnieuw, of stel je vraag aan Café Claude.'
+          ? (ccMatch
+              ? 'Je hebt vandaag uitzonderlijk veel gezocht en een technische veiligheidsgrens bereikt. Probeer het later vandaag opnieuw, of stel je vraag aan Café Claude.'
+              : 'Je hebt vandaag uitzonderlijk veel gezocht en een technische veiligheidsgrens bereikt. Probeer het later vandaag opnieuw.')
           : isLid
             ? 'Je 8 zoekopdrachten voor vandaag zijn op. Morgen kun je weer verder. Met een Infofrankrijk-abonnement zoek je onbeperkt — of doorzoek zelf het forum.'
             : 'Je 3 gratis zoekopdrachten voor vandaag zijn op. Word gratis lid van Nederlanders.fr voor 8 per dag.';
-        return res.status(429).json({ subscriber: isSubscriber, lid: isLid, message });
+        return res.status(429).json({ subscriber: isSubscriber, lid: isLid, cafeClaude: ccMatch, message });
       }
     } catch (e) {
       console.error('Rate limit error:', e); // bij fout: niet blokkeren
@@ -575,6 +581,11 @@ export default async function handler(req, res) {
       datumwaarschuwingTag: s.datumwaarschuwingTag,
     }));
 
+    // Café Claude-verwijzingen alleen tonen als de vraag binnen een CC-domein
+    // valt: match op de rubriek, de tags van de gevonden bronnen én de query.
+    const bronTags = sources.flatMap(s => s.tags || []);
+    const cafeClaude = matchtCafeClaude({ query: q, rubriekSignals: [rubriek, rubriekTag], tags: bronTags });
+
     const responseData = {
       narrative,
       sources,
@@ -582,6 +593,7 @@ export default async function handler(req, res) {
       searchCount,
       truncated,
       rubriek: rubriek || null,
+      cafeClaude,
     };
 
     if (sharedRedis) {
