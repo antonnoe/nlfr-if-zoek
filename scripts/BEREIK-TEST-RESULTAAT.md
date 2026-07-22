@@ -1,6 +1,6 @@
 # NLFR bereik-test — resultaat
 
-Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 07:32:25 UTC.
+Uitgevoerd door GitHub Actions (ubuntu-latest) op 2026-07-22 07:34:48 UTC.
 
 Doel: kan een Actions-runner nederlanders.fr server-side ophalen?
 Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 300 tekens.
@@ -65,8 +65,8 @@ Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 3
 - AIA CA-Issuers-URL: `http://yr2.i.lencr.org/`
 - Intermediate opgehaald: **ja (DER)**
 - Intermediate: `C = US, O = Let's Encrypt, CN = YR2`
-- Root gevonden in systeem-truststore: **nee**
-- Bundle geschreven naar `certs/ning-ca-bundle.pem` (1 certificaten)
+- Root gevonden: **ja (AIA)**
+- Bundle geschreven naar `certs/ning-ca-bundle.pem` (2 certificaten)
 - Verificatie `curl --cacert certs/ning-ca-bundle.pem https://www.nederlanders.fr/` (zonder `-k`): HTTP **`200`**
   - ✅ De aangevulde keten werkt: NING is nu bereikbaar met normale TLS-verificatie.
 
