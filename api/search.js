@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { ningFetch } from './_ning-agent.js';
 import { ningSearch } from './_ning-zoek.js';
+import { getGoldList, getPromoted, enrichReplies, scoreForumSources, isRestrictedTopic } from './_ning-tiers.js';
 
 const SYSTEM_PROMPT = `Je bent de zoekassistent van Nederlanders.fr. Je krijgt zoekresultaten (titel, snippet, URL) van twee bronnen aangeleverd en presenteert de relevante daarvan. Je zoekt niet zelf en je beantwoordt de vraag niet — je selecteert en vat de gevonden bronnen samen.
 
@@ -245,76 +245,7 @@ function parseSources(text) {
   return sources;
 }
 
-// Lichte verrijking: haal alleen voor de top-N (recency) NLFR-bijdragen het
-// reactieaantal (en weergaven) van de NING-pagina. Niet alle treffers — alleen de
-// top, om latentie laag te houden. Bij geen data: veld blijft leeg/undefined.
-async function enrichTopThreads(threads, topN = 3) {
-  const candidates = rankThreads(threads)
-    .filter(t => t.url && t.url.includes('nederlanders.fr'))
-    .slice(0, topN);
-  if (candidates.length === 0) return threads;
-
-  const enriched = new Map();
-  await Promise.allSettled(
-    candidates.map(async (t) => {
-      try {
-        // Gedeelde agent met NING CA-set (fix voor de incomplete certketen die
-        // deze verrijking in productie stil liet falen). Timeout: 3s.
-        const res = await ningFetch(t.url, {
-          timeoutMs: 3000,
-          headers: { 'User-Agent': 'NLFR-IF-Zoek/1.0' },
-        });
-        if (!res.ok) return;
-        const html = res.body;
-
-        let replyCount = (html.match(/Reactie van/g) || []).length;
-        if (!replyCount) {
-          const m = html.match(/(\d+)\s*Reacties?/i);
-          if (m) replyCount = parseInt(m[1], 10);
-        }
-        let views = null;
-        const vm = html.match(/Weergaven:\s*([\d.]+)/);
-        if (vm) views = parseInt(vm[1].replace(/\./g, ''), 10);
-
-        enriched.set(t.url, { replyCount, views });
-      } catch {
-        /* stil falen — verrijking is optioneel */
-      }
-    })
-  );
-
-  return threads.map(t => (enriched.has(t.url) ? { ...t, ...enriched.get(t.url) } : t));
-}
-
-function rankThreads(threads) {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  return threads
-    .map(t => {
-      const yearMatch = (t.date || '').match(/(20\d{2})/);
-      const year = yearMatch ? parseInt(yearMatch[1], 10) : null;
-      let recency = 0.5;
-      if (year) {
-        const age = currentYear - year;
-        if (age === 0) recency = 1.0;
-        else if (age === 1) recency = 0.85;
-        else if (age === 2) recency = 0.7;
-        else if (age === 3) recency = 0.55;
-        else if (age === 4) recency = 0.4;
-        else recency = 0.3;
-      }
-      const replies = t.replyCount ?? 0;
-      const replyScore = replies > 0 ? Math.log2(replies + 1) : 0;
-      const isIF = t.type === 'if' || (t.url && t.url.includes('infofrankrijk.com'));
-      // Zonder live reactie-data (Serper levert die niet) valt het terug op recency,
-      // zodat forumposts toch op datum gesorteerd worden i.p.v. allemaal score 0.
-      const base = replies > 0 ? replyScore * recency * 10 : recency;
-      const score = isIF ? 1000 : base;
-      return { ...t, _score: score };
-    })
-    .sort((a, b) => b._score - a._score)
-    .map(({ _score, ...rest }) => rest);
-}
+// Reactie-verrijking en tier-scoring staan in ./_ning-tiers.js (gedeeld).
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -458,49 +389,82 @@ export default async function handler(req, res) {
       fullText = textBlocks.map(b => b.text).join('\n\n');
     }
 
-    const cutoffYear = new Date().getFullYear() - 5;
     const validUrl = (url) => {
       try {
         const u = new URL(url);
         return u.hostname.includes('nederlanders.fr') || u.hostname.includes('infofrankrijk.com');
       } catch { return false; }
     };
-    // Tijdfilter (ongewijzigd): forumbijdragen ouder dan cutoffYear vallen af;
-    // items zonder herkenbaar jaartal blijven; IF mag ouder zijn.
-    const passesTimeFilter = (type, dateStr) => {
-      if (type === 'if') return true;
-      const m = dateStr && dateStr.match(/(20\d{2})/);
-      if (!m) return true;
-      return parseInt(m[1], 10) >= cutoffYear;
-    };
-    const rank = { 'if': 0, 'forum': 1 };
 
-    // BRON-blokken parsen met de tolerante parser; daarna valideren, tijdfilteren,
-    // sorteren (IF eerst) en begrenzen op 8. Losse markup belandt nooit in de output.
-    const sources = parseSources(fullText)
+    // NING-metadata (kind/auteurId/datum) per URL — vult aan wat Haiku niet
+    // doorgeeft, zodat de tier-scoring post/reactie en screennaam kent.
+    const ningByUrl = new Map(ningResults.map(r => [r.url, r]));
+
+    // BRON-blokken parsen + valideren + NING-metadata koppelen.
+    let parsed = parseSources(fullText)
       .filter(s => s.titel && s.url && validUrl(s.url) && !s.url.includes('/m/'))
-      .filter(s => passesTimeFilter(s.type, s.datum))
-      .sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9))
-      .slice(0, 8);
+      .map(s => {
+        const meta = ningByUrl.get(s.url);
+        if (!meta) return s;
+        return {
+          ...s,
+          kind: meta.kind,
+          auteurId: meta.auteurId,
+          datum: s.datum || meta.datum,
+          auteur: s.auteur || meta.auteur,
+        };
+      });
+
+    // Tijdfilter → weging. Uitzondering: bij een geld-/regel-/procedure-vraag
+    // blijft de HARDE 5-jaarsgrens gelden voor forumbronnen; anders drukt
+    // ouderdom alleen glijdend de tier-score (datum blijft in de output).
+    const strictTime = isRestrictedTopic(q);
+    if (strictTime) {
+      const cutoffYear = new Date().getFullYear() - 5;
+      parsed = parsed.filter(s => {
+        if (s.type === 'if') return true;
+        const m = s.datum && s.datum.match(/(20\d{2})/);
+        if (!m) return true; // geen herkenbaar jaar → blijft staan (zoals voorheen)
+        return parseInt(m[1], 10) >= cutoffYear;
+      });
+    }
+
+    // IF-artikelen staan BUITEN de tiers en blijven eerst (bestaande volgorde).
+    const ifSources = parsed.filter(s => s.type === 'if');
+    const forumSources = parsed.filter(s => s.type !== 'if');
+
+    // Tier-inputs (best-effort, gecacht) + reactie-verrijking — parallel.
+    const [gold, promoted, replyByUrl] = await Promise.all([
+      getGoldList(),
+      getPromoted(),
+      enrichReplies(forumSources.map(s => s.url)),
+    ]);
+    const curYear = new Date().getFullYear();
+    const scoredForum = scoreForumSources(forumSources, { gold, promoted, replyByUrl, curYear });
+
+    // IF eerst, dan forumbronnen op tier-score; begrenzen op 8. Interne _score weg.
+    const sources = [...ifSources, ...scoredForum]
+      .slice(0, 8)
+      .map(({ _score, ...rest }) => rest);
 
     // Vaste, correcte intro (terminologie-neutraal) — niet door het model bepaald.
     const narrative = sources.length > 0
       ? `Over "${q}" vonden we het volgende in het netwerk:`
       : '';
 
-    // "Recente bijdragen"-lijst afgeleid van dezelfde gevalideerde bronnen.
-    const threads = sources.map(s => ({
+    // "Gevonden in het netwerk"-lijst volgt dezelfde volgorde en draagt de
+    // verrijking (reacties/weergaven) + viaReactie/tier mee.
+    const rankedThreads = sources.map(s => ({
       title: s.titel,
       url: s.url,
       author: s.auteur,
       date: s.datum,
       type: s.type,
+      replyCount: s.replyCount,
+      views: s.views,
+      viaReactie: s.viaReactie,
+      tier: s.tier,
     }));
-
-    // Lichte verrijking van alleen de top-N NLFR-bijdragen, dan ranken op
-    // reactieaantal × recency (IF bovenaan).
-    const enrichedThreads = await enrichTopThreads(threads);
-    const rankedThreads = rankThreads(enrichedThreads);
 
     const responseData = {
       narrative,

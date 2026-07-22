@@ -73,16 +73,18 @@ export function parseNingSearch(html, max = 20) {
     const titel = stripTags(dt[3]);
     if (!titel || !url || seen.has(url)) continue;
 
-    // datum (met jaartal) + auteur uit de <small>-metaregel. We ankeren op
-    // <small> zodat een lowercase "op" in het snippet niet meegepakt wordt.
+    // datum (met jaartal) + auteur (+ screennaam) uit de <small>-metaregel. We
+    // ankeren op <small> zodat een lowercase "op" in het snippet niet meetelt.
     let datum = '';
     let auteur = '';
+    let auteurId = '';
     const meta = block.match(
-      /<small[^>]*>\s*Op\s+([^<]*?)\s+om\s+[\d.:]+\s+toegevoegd door\s*<a[^>]*>([^<]+)<\/a>/i
+      /<small[^>]*>\s*Op\s+([^<]*?)\s+om\s+[\d.:]+\s+toegevoegd door\s*<a[^>]*href="\/profile\/([^"?#]+)[^"]*"[^>]*>([^<]+)<\/a>/i
     );
     if (meta) {
       datum = meta[1].replace(/\s+/g, ' ').trim();
-      auteur = stripTags(meta[2]);
+      auteurId = meta[2].trim();
+      auteur = stripTags(meta[3]);
     }
 
     // snippet = eerste <dd> die niet de metaregel ("toegevoegd door") is.
@@ -95,7 +97,7 @@ export function parseNingSearch(html, max = 20) {
     }
 
     seen.add(url);
-    results.push({ titel, url, snippet, datum, auteur, kind });
+    results.push({ titel, url, snippet, datum, auteur, auteurId, kind });
     if (results.length >= max) break;
   }
   return results;
@@ -104,7 +106,8 @@ export function parseNingSearch(html, max = 20) {
 /**
  * ningSearch(q): haalt maximaal ~20 forumtreffers op. Faalt NOOIT hard —
  * bij elke fout/timeout een lege array, zodat de bestaande flow nooit blokkeert.
- * Geeft terug: { titel, url, snippet, datum (met jaartal), auteur, kind }.
+ * Geeft terug: { titel, url, snippet, datum (met jaartal), auteur, auteurId
+ * (screennaam, voor goudlijst-match), kind: 'post'|'comment' }.
  */
 export async function ningSearch(q, { timeoutMs = 3000, max = 20 } = {}) {
   const term = (q || '').trim();
