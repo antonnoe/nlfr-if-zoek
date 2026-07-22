@@ -33,8 +33,8 @@ INHOUDELIJKE REGELS:
 - auteur: alleen invullen als die duidelijk uit het resultaat blijkt; anders LAAT HET VELD LEEG (niets tussen de strepen). Verzin nooit een auteur en gebruik nooit een streepje of "onbekend" als opvulling.
 - datum: alleen invullen als die uit het resultaat blijkt; anders LEEG laten.
 - Sorteer: IF-bronnen eerst, daarna forumbijdragen.
-- IF-VERTEGENWOORDIGING (belangrijk): Infofrankrijk is de KENNISBRON, het forum is ERVARING. Neem ALTIJD alle relevante Infofrankrijk-artikelen op wanneer die tussen de resultaten staan. Reserveer daar eerst ruimte voor en vul daarna aan met de beste forumbijdragen. Geef NOOIT een selectie met uitsluitend forumbijdragen als er relevante IF-artikelen tussen de resultaten zitten.
-- Maximaal 8 bronnen. Geef alleen wat echt relevant is — als er niets relevants is, geef helemaal niets terug (geen tekst).`;
+- BALANS IF/forum: Infofrankrijk is de kennisbron en het forum is ervaring. Zet relevante Infofrankrijk-artikelen vooraan wanneer ze relevant zijn. Streef bij voldoende relevant aanbod naar 4 à 8 bronnen met zowel IF- als forumbronnen. Neem liever een redelijk relevante bron extra op dan een magere selectie te geven; toon alleen minder wanneer er écht weinig relevant materiaal is.
+- Maximaal 8 bronnen.`;
 
 // Rubriek-tags (komen overeen met NLFR tag-URLs)
 const RUBRIEKEN = {
@@ -496,33 +496,50 @@ export default async function handler(req, res) {
       fullText = textBlocks.map(b => b.text).join('\n\n');
     }
 
-    const validUrl = (url) => {
-      try {
-        const u = new URL(url);
-        return u.hostname.includes('nederlanders.fr') || u.hostname.includes('infofrankrijk.com');
-      } catch { return false; }
+    // URL-validatie mét herstel van een ontbrekend protocol — een geldige bron
+    // mag niet op een formatteer-slip sneuvelen. Geeft de genormaliseerde URL
+    // terug, of een reden waarom de bron aantoonbaar kapot is (onparseerbaar of
+    // een vreemd/verzonnen domein).
+    const checkUrl = (raw) => {
+      let url = (raw || '').trim();
+      if (!url) return { ok: false, reden: 'geen url' };
+      let u;
+      try { u = new URL(url); }
+      catch {
+        try { u = new URL('https://' + url.replace(/^\/+/, '')); url = u.href; }
+        catch { return { ok: false, reden: 'onparseerbare URL' }; }
+      }
+      if (!(u.hostname.includes('nederlanders.fr') || u.hostname.includes('infofrankrijk.com'))) {
+        return { ok: false, reden: 'onbekend domein (verzonnen/vreemde bron): ' + u.hostname };
+      }
+      return { ok: true, url };
     };
 
     // NING-metadata (kind/auteurId/datum) per URL — vult aan wat Haiku niet
     // doorgeeft, zodat de tier-scoring post/reactie en screennaam kent.
     const ningByUrl = new Map(ningResults.map(r => [r.url, r]));
 
-    // BRON-blokken parsen + valideren + NING-metadata koppelen.
+    // BRON-blokken parsen + valideren + NING-metadata koppelen. Elke Haiku-bron
+    // die de nafiltering laat vallen wordt mét reden vastgelegd (debug-inzicht).
     const haikuSources = parseSources(fullText);
     if (debugMode) debugInfo.haikuBronnen = haikuSources.length; // vóór filtering hierna
-    let parsed = haikuSources
-      .filter(s => s.titel && s.url && validUrl(s.url) && !s.url.includes('/m/'))
-      .map(s => {
-        const meta = ningByUrl.get(s.url);
-        if (!meta) return s;
-        return {
-          ...s,
-          kind: meta.kind,
-          auteurId: meta.auteurId,
-          datum: s.datum || meta.datum,
-          auteur: s.auteur || meta.auteur,
-        };
-      });
+    const afgevallen = [];
+    const parsed = [];
+    for (const s of haikuSources) {
+      const titel = (s.titel || '').trim();
+      if (!titel) { afgevallen.push({ titel: s.url || '(leeg)', reden: 'geen titel' }); continue; }
+      const chk = checkUrl(s.url);
+      if (!chk.ok) { afgevallen.push({ titel, reden: chk.reden }); continue; }
+      // Mobiele duplicaten alléén bij NING wegfilteren — nooit een IF-artikel.
+      if (/nederlanders\.fr\/m\//i.test(chk.url)) {
+        afgevallen.push({ titel, reden: 'mobiele duplicaat-URL (/m/)' });
+        continue;
+      }
+      const meta = ningByUrl.get(chk.url);
+      parsed.push(meta
+        ? { ...s, url: chk.url, kind: meta.kind, auteurId: meta.auteurId, datum: s.datum || meta.datum, auteur: s.auteur || meta.auteur }
+        : { ...s, url: chk.url });
+    }
 
     // IF-artikelen staan BUITEN de tiers en blijven eerst (bestaande volgorde).
     // Inclusief, nooit exclusief: geen forumbron valt weg op ouderdom/tier; de
@@ -536,12 +553,18 @@ export default async function handler(req, res) {
     // Dedupe op de verrijkte draad-URL: reactie + post naar dezelfde draad → één
     // treffer (post wint; viaReactie blijft als signaal). Daarna pas tier-scoren.
     const dedupedForum = dedupeByThread(forumSources, replyByUrl);
+    const keptForumUrls = new Set(dedupedForum.map(s => s.url));
+    for (const s of forumSources) {
+      if (!keptForumUrls.has(s.url)) afgevallen.push({ titel: s.titel, reden: 'samengevoegd met dezelfde draad (dedupe)' });
+    }
     const scoredForum = scoreForumSources(dedupedForum, { gold, promoted, replyByUrl, curYear, queryYears });
 
     // IF eerst, dan forumbronnen op tier-score; begrenzen op 8. Interne _score weg.
-    const sources = [...ifSources, ...scoredForum]
-      .slice(0, 8)
-      .map(({ _score, ...rest }) => rest);
+    const combined = [...ifSources, ...scoredForum];
+    for (const s of combined.slice(8)) afgevallen.push({ titel: s.titel, reden: 'buiten de top 8 (cap)' });
+    const sources = combined.slice(0, 8).map(({ _score, ...rest }) => rest);
+
+    if (debugMode) debugInfo.afgevallen = afgevallen;
 
     // Vaste, correcte intro (terminologie-neutraal) — niet door het model bepaald.
     const narrative = sources.length > 0
