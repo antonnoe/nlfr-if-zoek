@@ -1,0 +1,109 @@
+name: NLFR bereik-test
+
+# Bereikbaarheidstest: kan een GitHub Actions-runner nederlanders.fr ophalen?
+# (Vercel wordt op verbindingsniveau geweigerd.) Draait op handmatige dispatch
+# en op een push die DIT workflow-bestand zelf raakt. De paths-filter includeert
+# alleen dit bestand, zodat de commit-back naar scripts/ de workflow niet
+# hertriggert; "[skip ci]" in die commit is de tweede waarborg.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/nlfr-bereik-test.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  bereik-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Haal NLFR-URLs op en schrijf resultaat
+        run: |
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+          OUT="scripts/BEREIK-TEST-RESULTAAT.md"
+          mkdir -p scripts
+          TMP="$(mktemp -d)"
+
+          {
+            echo "# NLFR bereik-test — resultaat"
+            echo
+            echo "Uitgevoerd door GitHub Actions (ubuntu-latest) op $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
+            echo
+            echo "Doel: kan een Actions-runner nederlanders.fr server-side ophalen?"
+            echo "Per URL: HTTP-statuscode, response-grootte (bytes), herkenbare markers, eerste 300 tekens."
+            echo
+          } > "$OUT"
+
+          # Argumenten: url | markerbeschrijving | grep-patroon-1 | grep-patroon-2 (optioneel)
+          check() {
+            local url="$1" mdesc="$2" p1="$3" p2="$4"
+            local body="$TMP/body.html"
+            local out code size markers first
+
+            out="$(curl -sS -A "$UA" --max-time 15 -o "$body" -w '%{http_code} %{size_download}' "$url" || true)"
+            code="${out%% *}"
+            size="${out##* }"
+            [ -z "$code" ] && code="000"
+            [ -z "$size" ] && size="0"
+            [ -f "$body" ] || : > "$body"
+
+            markers="nee"
+            if grep -qi -e "$p1" "$body" 2>/dev/null; then
+              markers="ja ($p1)"
+            elif [ -n "$p2" ] && grep -qi -e "$p2" "$body" 2>/dev/null; then
+              markers="ja ($p2)"
+            fi
+
+            first="$(head -c 300 "$body" | tr -d '\000' | tr '\n\r\t' '   ')"
+
+            {
+              echo "## $url"
+              echo
+              echo "- HTTP-statuscode: \`$code\`"
+              echo "- Response-grootte: \`$size\` bytes"
+              echo "- Markers ($mdesc): **$markers**"
+              echo "- Eerste 300 tekens:"
+              echo
+              echo '~~~html'
+              echo "$first"
+              echo '~~~'
+              echo
+            } >> "$OUT"
+
+            echo "[$code] size=$size markers=$markers  $url"
+          }
+
+          check "https://www.nederlanders.fr/main/search/search?q=septic+tank" \
+                'zoekpagina: "toegevoegd door" of /profiles/blogs/' \
+                "toegevoegd door" "/profiles/blogs/"
+
+          check "https://www.nederlanders.fr/profiles/blog/feed?xn_auth=no" \
+                'feed: <rss of <feed' \
+                "<rss" "<feed"
+
+          check "https://www.nederlanders.fr/profiles/blog/list?promoted=1" \
+                'promoted-lijst: /profiles/blogs/' \
+                "/profiles/blogs/" ""
+
+          rm -rf "$TMP"
+          echo "----- $OUT -----"
+          cat "$OUT"
+
+      - name: Commit resultaat terug
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scripts/BEREIK-TEST-RESULTAAT.md
+          if git diff --staged --quiet; then
+            echo "Geen wijziging om te committen."
+          else
+            git commit -m "bereik-test resultaat [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
