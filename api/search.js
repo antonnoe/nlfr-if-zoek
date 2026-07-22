@@ -416,23 +416,24 @@ export default async function handler(req, res) {
       });
 
     // Inclusief, nooit exclusief: GEEN enkele forumbron valt weg op ouderdom of
-    // tier — ook niet bij een geld-/regel-/procedure-vraag. Bij zo'n restricted
-    // topic krijgen forumbronnen ouder dan 5 jaar in de scoring een extra zware
-    // ouderdomsdemping + datumwaarschuwing:true (afgehandeld in scoreForumSources).
-    const strictTime = isRestrictedTopic(q);
+    // tier. Ouderdomsdemping is houdbaarheid-gestuurd per bron (uit de tags in
+    // de verrijking). De query-heuristiek is ALLEEN een vangnet voor bronnen
+    // zonder tags: geld-/regel-/procedure-vraag → korte houdbaarheid (1), anders
+    // de default (5 jaar).
+    const queryYears = isRestrictedTopic(q) ? 1 : 5;
 
     // IF-artikelen staan BUITEN de tiers en blijven eerst (bestaande volgorde).
     const ifSources = parsed.filter(s => s.type === 'if');
     const forumSources = parsed.filter(s => s.type !== 'if');
 
-    // Tier-inputs (best-effort, gecacht) + reactie-verrijking — parallel.
+    // Tier-inputs (best-effort, gecacht) + reactie-/tag-verrijking — parallel.
     const [gold, promoted, replyByUrl] = await Promise.all([
       getGoldList(),
       getPromoted(),
       enrichReplies(forumSources.map(s => s.url)),
     ]);
     const curYear = new Date().getFullYear();
-    const scoredForum = scoreForumSources(forumSources, { gold, promoted, replyByUrl, curYear, strict: strictTime });
+    const scoredForum = scoreForumSources(forumSources, { gold, promoted, replyByUrl, curYear, queryYears });
 
     // IF eerst, dan forumbronnen op tier-score; begrenzen op 8. Interne _score weg.
     const sources = [...ifSources, ...scoredForum]
@@ -456,7 +457,9 @@ export default async function handler(req, res) {
       views: s.views,
       viaReactie: s.viaReactie,
       tier: s.tier,
+      tags: s.tags,
       datumwaarschuwing: s.datumwaarschuwing,
+      datumwaarschuwingTag: s.datumwaarschuwingTag,
     }));
 
     const responseData = {

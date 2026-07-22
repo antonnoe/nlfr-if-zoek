@@ -15,6 +15,13 @@
  */
 
 import { ningFetch } from './_ning-agent.js';
+import {
+  shortestHoudbaarheid,
+  houdbaarheidRecency,
+  isDatumwaarschuwing,
+  isDateTag,
+  DEFAULT_HOUDBAARHEID,
+} from './_houdbaarheid.js';
 
 const BASE = 'https://www.nederlanders.fr';
 const UA =
@@ -123,9 +130,10 @@ export async function getPromoted() {
   return acc;
 }
 
-// ---------- verrijking: reactieaantal + weergaven per forum-URL ----------
+// ---------- verrijking: reactieaantal + weergaven + tags per forum-URL ----------
 // Zelfde markers als voorheen (Reactie van / N Reacties / Weergaven:). Volgt
-// redirects (comment-permalink → draad), dus reacties tellen voor de draad.
+// redirects (comment-permalink → draad), dus reacties/tags tellen voor de draad.
+// Tags komen uit de draadpagina-links /profiles/blog/list?tag=… (datumtag genegeerd).
 export async function enrichReplies(urls, cap = 8) {
   const map = new Map();
   const targets = (urls || []).filter(u => u && u.includes('nederlanders.fr')).slice(0, cap);
@@ -143,7 +151,21 @@ export async function enrichReplies(urls, cap = 8) {
         let views = null;
         const vm = html.match(/Weergaven:\s*([\d.]+)/);
         if (vm) views = parseInt(vm[1].replace(/\./g, ''), 10);
-        map.set(url, { replyCount, views });
+
+        const tags = [];
+        const seenTags = new Set();
+        const tagRe = /\/profiles\/blog\/list\?tag=([^"'&\s>]+)/gi;
+        let tm;
+        while ((tm = tagRe.exec(html))) {
+          let dec;
+          try { dec = decodeURIComponent(tm[1].replace(/\+/g, ' ')); } catch { dec = tm[1].replace(/\+/g, ' '); }
+          dec = dec.trim();
+          if (!dec || isDateTag(dec) || seenTags.has(dec)) continue; // datumtag negeren
+          seenTags.add(dec);
+          tags.push(dec);
+        }
+
+        map.set(url, { replyCount, views, tags });
       } catch { /* stil falen */ }
     })
   );
@@ -170,33 +192,22 @@ export function isRestrictedTopic(q) {
   return RESTRICTED_RE.test(norm);
 }
 
-// Glijdende ouderdomsweging (0..1): recent = hoog, oud = laag; geen jaar →
-// neutraal. `heavy` = extra zware demping (aanzienlijk sterker dan de reguliere
-// ~8%/jaar) voor forumbronnen bij een restricted topic die > 5 jaar oud zijn:
-// ze zakken naar onderen, maar verdwijnen NOOIT (inclusief, nooit exclusief).
-export function recencyWeight(datum, curYear, heavy = false) {
-  const m = (datum || '').match(/(20\d{2})/);
-  if (!m) return 0.5;
-  const age = curYear - parseInt(m[1], 10);
-  if (age <= 0) return 1;
-  if (heavy) return Math.max(0.02, 0.30 - age * 0.03); // veel steiler dan normaal
-  return Math.max(0.05, 1 - age * 0.08); // ~8%/jaar, vloer 0.05
-}
-
 /**
  * Bepaal tier + score per forumbron en sorteer aflopend.
  * tier 1 = promoted, 2 = auteur in goudlijst, 3 = reacties ≥ 5, 4 = rest.
  * Binnen een tier telt recentere datum zwaarder. Comment-treffers krijgen
  * viaReactie:true en tellen (promoted/replies) mee voor hun draad.
  *
- * Bij een restricted topic (geld/regel/procedure) worden forumbronnen NIET
- * verwijderd; wie > 5 jaar oud is krijgt een extra zware ouderdomsdemping in de
- * score plus `datumwaarschuwing: true` in de data.
+ * Ouderdomsdemping is per bron houdbaarheid-gestuurd (gecureerde tabel): de
+ * KORTSTE houdbaarheid over de tags van de bron domineert. Tags komen uit de
+ * verrijking (draadpagina). Heeft een bron geen tags, dan is de query-heuristiek
+ * (ctx.queryYears) het vangnet. Niets wordt op ouderdom verwijderd; oude bronnen
+ * zakken glijdend en krijgen datumwaarschuwing:true (met de veroorzakende tag).
  *
- * ctx: { gold:Set, promoted:{ids,titles}, replyByUrl:Map, curYear:number, strict:boolean }
+ * ctx: { gold:Set, promoted:{ids,titles}, replyByUrl:Map, curYear:number, queryYears:number }
  */
 export function scoreForumSources(forumSources, ctx) {
-  const { gold, promoted, replyByUrl, curYear, strict = false } = ctx;
+  const { gold, promoted, replyByUrl, curYear, queryYears = DEFAULT_HOUDBAARHEID } = ctx;
   const scored = forumSources.map((s) => {
     const isComment = s.kind === 'comment';
     const objId = blogObjectId(s.url);
@@ -226,15 +237,17 @@ export function scoreForumSources(forumSources, ctx) {
     else if (goldAuthor) tier = 2;
     else if (replyCount >= 5) tier = 3;
 
-    // Restricted topic + ouder dan 5 jaar → extra zware demping + waarschuwing,
-    // maar de bron blijft (nooit verwijderen).
-    const yearMatch = (s.datum || '').match(/(20\d{2})/);
-    const age = yearMatch ? curYear - parseInt(yearMatch[1], 10) : null;
-    const datumwaarschuwing = !!(strict && age != null && age > 5);
+    // Houdbaarheid: kortste over de tags van de bron (uit de verrijking). Geen
+    // tags → query-heuristiek als vangnet. De veroorzakende tag onthouden.
+    const tags = enr.tags || [];
+    const sh = shortestHoudbaarheid(tags);
+    const years = sh ? sh.years : queryYears;
+    const houdbaarheidLabel = sh ? sh.label : '(zoekterm-heuristiek)';
 
-    const rec = recencyWeight(s.datum, curYear, datumwaarschuwing);
+    const rec = houdbaarheidRecency(s.datum, curYear, years);
+    const datumwaarschuwing = isDatumwaarschuwing(s.datum, curYear, years);
     const replyBonus = replyCount > 0 ? Math.min(30, Math.log2(replyCount + 1) * 6) : 0;
-    // Tier domineert; daarbinnen recency, dan een kleine reactie-bonus.
+    // Tier domineert; daarbinnen de houdbaarheid-gestuurde recency, dan reacties.
     const score = (5 - tier) * 10000 + rec * 1000 + replyBonus;
 
     const out = {
@@ -245,7 +258,11 @@ export function scoreForumSources(forumSources, ctx) {
       views: enr.views,
       _score: score,
     };
-    if (datumwaarschuwing) out.datumwaarschuwing = true;
+    if (tags.length) out.tags = tags;
+    if (datumwaarschuwing) {
+      out.datumwaarschuwing = true;
+      out.datumwaarschuwingTag = houdbaarheidLabel;
+    }
     return out;
   });
   scored.sort((a, b) => b._score - a._score);
