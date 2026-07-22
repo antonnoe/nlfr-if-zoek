@@ -258,14 +258,31 @@ jobs:
           echo "----- $BUNDLE -----"
           head -n 6 "$BUNDLE" || true
 
+      # TIJDELIJK — kalibratie-samples voor goudlijst + promoted-lijst. Na
+      # kalibratie verwijderen; de samples blijven als testfixtures.
+      - name: Goud/promoted samples ophalen (tijdelijk)
+        run: |
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+          BUNDLE="certs/ning-ca-bundle.pem"
+          mkdir -p scripts/samples
+          grab() {
+            local url="$1" file="$2" code
+            code="$(curl -sS -A "$UA" --max-time 20 --cacert "$BUNDLE" \
+              -w '%{http_code}' -o "scripts/samples/$file" "$url" || true)"
+            echo "sample $file: HTTP ${code:-000}, $(wc -c < "scripts/samples/$file" 2>/dev/null || echo 0) bytes"
+          }
+          grab "https://www.nederlanders.fr/profiles/friend/listFeatured" "leden-featured.html"
+          grab "https://www.nederlanders.fr/profiles/blog/list?promoted=1" "promoted-p1.html"
+          grab "https://www.nederlanders.fr/profiles/blog/list?promoted=1&page=2" "promoted-p2.html"
+
       - name: Commit resultaat terug
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add scripts/BEREIK-TEST-RESULTAAT.md certs/ning-ca-bundle.pem
+          git add scripts/BEREIK-TEST-RESULTAAT.md certs/ning-ca-bundle.pem scripts/samples
           if git diff --staged --quiet; then
             echo "Geen wijziging om te committen."
           else
-            git commit -m "bereik-test resultaat + CA-bundle [skip ci]"
+            git commit -m "bereik-test resultaat + CA-bundle + goud/promoted samples [skip ci]"
             git push origin HEAD:${{ github.ref_name }}
           fi
